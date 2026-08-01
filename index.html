@@ -11,10 +11,6 @@
     box-sizing: border-box;
   }
 
-  html, body {
-    min-height: 100%;
-  }
-
   body {
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     background: linear-gradient(160deg, #a855f7 0%, #7c3aed 35%, #4c1d95 70%, #1e0a3c 100%);
@@ -24,30 +20,8 @@
     overflow-x: hidden;
   }
 
-  /* ---------- Floating orbs (background animation) ---------- */
-  .orb {
-    position: fixed;
-    border-radius: 50%;
-    filter: blur(60px);
-    opacity: 0.35;
-    pointer-events: none;
-    z-index: 0;
-    animation: drift 18s ease-in-out infinite alternate;
-  }
-  .orb-1 { width: 420px; height: 420px; background: #c084fc; top: -120px; right: -100px; }
-  .orb-2 { width: 340px; height: 340px; background: #6d28d9; bottom: -80px; left: -120px; animation-delay: -6s; animation-duration: 22s; }
-  .orb-3 { width: 260px; height: 260px; background: #e879f9; top: 45%; left: 55%; animation-delay: -12s; animation-duration: 26s; }
-
-  @keyframes drift {
-    0%   { transform: translate(0, 0) scale(1); }
-    50%  { transform: translate(-40px, 30px) scale(1.1); }
-    100% { transform: translate(30px, -40px) scale(0.95); }
-  }
-
   /* ---------- Header ---------- */
   header {
-    position: relative;
-    z-index: 1;
     text-align: center;
     padding: 90px 20px 50px;
   }
@@ -56,62 +30,87 @@
     font-size: clamp(3.5rem, 10vw, 6.5rem);
     font-weight: 800;
     letter-spacing: 0.25em;
-    margin-right: -0.25em; /* balance the letter-spacing */
-    background: linear-gradient(90deg, #f5d0fe, #ffffff, #d8b4fe, #f5d0fe);
-    background-size: 300% auto;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    animation: shimmer 6s linear infinite, fadeDown 1s ease both;
-    text-shadow: 0 0 60px rgba(216, 180, 254, 0.35);
-  }
-
-  @keyframes shimmer {
-    to { background-position: 300% center; }
+    margin-right: -0.25em;
+    color: #ffffff;
+    text-shadow: 0 0 50px rgba(216, 180, 254, 0.4);
+    animation: fadeDown 0.9s ease both;
   }
 
   @keyframes fadeDown {
-    from { opacity: 0; transform: translateY(-30px); }
+    from { opacity: 0; transform: translateY(-24px); }
     to   { opacity: 1; transform: translateY(0); }
   }
 
   .divider {
     width: 140px;
     height: 3px;
-    margin: 28px auto 0;
+    margin: 26px auto 0;
     border: none;
     border-radius: 999px;
     background: linear-gradient(90deg, transparent, #e9d5ff, transparent);
-    animation: growIn 1.2s ease 0.4s both, pulseGlow 3s ease-in-out 1.6s infinite;
+    animation: fadeIn 1s ease 0.3s both;
   }
 
-  @keyframes growIn {
-    from { width: 0; opacity: 0; }
-    to   { width: 140px; opacity: 1; }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
   }
 
-  @keyframes pulseGlow {
-    0%, 100% { box-shadow: 0 0 8px rgba(233, 213, 255, 0.4); }
-    50%      { box-shadow: 0 0 22px rgba(233, 213, 255, 0.9); }
+  /* ---------- Tabs ---------- */
+  .tabs {
+    display: inline-flex;
+    gap: 6px;
+    margin-top: 34px;
+    padding: 6px;
+    border-radius: 999px;
+    background: rgba(30, 10, 60, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    animation: fadeIn 1s ease 0.45s both;
+  }
+
+  .tab-btn {
+    font-family: inherit;
+    font-size: 0.88rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgba(243, 234, 255, 0.75);
+    background: transparent;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 0.25s ease, background 0.25s ease;
+  }
+
+  .tab-btn:hover { color: #ffffff; }
+
+  .tab-btn.active {
+    color: #1e0a3c;
+    background: linear-gradient(90deg, #e9d5ff, #c084fc);
+  }
+
+  .tab-panel { display: none; }
+
+  .tab-panel.active {
+    display: block;
+    animation: panelIn 0.4s ease both;
+  }
+
+  @keyframes panelIn {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
   /* ---------- Main layout ---------- */
   main {
-    position: relative;
-    z-index: 1;
     max-width: 1100px;
     margin: 0 auto;
-    padding: 30px 40px 80px;
+    padding: 40px 40px 0;
   }
 
   .section-left {
     max-width: 380px;
-    animation: fadeLeft 1s ease 0.7s both;
-  }
-
-  @keyframes fadeLeft {
-    from { opacity: 0; transform: translateX(-40px); }
-    to   { opacity: 1; transform: translateX(0); }
   }
 
   .section-label {
@@ -121,42 +120,23 @@
     letter-spacing: 0.2em;
     color: #d8b4fe;
     margin-bottom: 16px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
   }
 
-  .section-label::after {
-    content: "";
-    flex: 1;
-    height: 1px;
-    background: linear-gradient(90deg, rgba(216, 180, 254, 0.5), transparent);
-  }
-
-  /* ---------- Card ---------- */
-  .card {
+  /* ---------- Cards ---------- */
+  .card, .friend-card {
     background: rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
     border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 18px;
-    padding: 26px 28px;
+    border-radius: 16px;
     box-shadow: 0 8px 32px rgba(30, 10, 60, 0.4);
-    transition: transform 0.35s ease, box-shadow 0.35s ease, border-color 0.35s ease;
-    animation: floatCard 6s ease-in-out infinite;
+    transition: transform 0.25s ease, border-color 0.25s ease;
   }
 
-  .card:hover {
-    transform: translateY(-6px) scale(1.02);
-    border-color: rgba(233, 213, 255, 0.5);
-    box-shadow: 0 16px 48px rgba(30, 10, 60, 0.55), 0 0 30px rgba(192, 132, 252, 0.25);
-    animation-play-state: paused;
+  .card:hover, .friend-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(233, 213, 255, 0.4);
   }
 
-  @keyframes floatCard {
-    0%, 100% { transform: translateY(0); }
-    50%      { transform: translateY(-8px); }
-  }
+  .card { padding: 26px 28px; }
 
   .card .badge {
     display: inline-block;
@@ -165,7 +145,7 @@
     text-transform: uppercase;
     letter-spacing: 0.15em;
     color: #1e0a3c;
-    background: linear-gradient(90deg, #e9d5ff, #c084fc);
+    background: #d8b4fe;
     padding: 5px 12px;
     border-radius: 999px;
     margin-bottom: 14px;
@@ -194,52 +174,171 @@
     letter-spacing: 0.1em;
     text-decoration: none;
     color: #1e0a3c;
-    background: linear-gradient(90deg, #e9d5ff, #c084fc, #e879f9);
-    background-size: 200% auto;
+    background: linear-gradient(90deg, #e9d5ff, #c084fc);
     border-radius: 999px;
-    box-shadow: 0 4px 18px rgba(192, 132, 252, 0.35);
-    transition: background-position 0.4s ease, transform 0.25s ease, box-shadow 0.25s ease;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
   }
 
   .card-btn:hover {
-    background-position: 100% center;
     transform: translateY(-2px);
-    box-shadow: 0 8px 28px rgba(232, 121, 249, 0.5);
+    box-shadow: 0 6px 20px rgba(192, 132, 252, 0.4);
   }
 
-  .card-btn:active {
+  /* ---------- Friends ---------- */
+  .friends-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 22px;
+    max-width: 820px;
+  }
+
+  .friend-card {
+    flex: 1 1 220px;
+    max-width: 260px;
+    text-align: center;
+    padding: 30px 24px;
+  }
+
+  .friend-card .avatar {
+    width: 60px;
+    height: 60px;
+    margin: 0 auto 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: #1e0a3c;
+    background: linear-gradient(135deg, #e9d5ff, #c084fc);
+  }
+
+  .friend-card h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #ffffff;
+  }
+
+  /* ---------- Bottom skills section ---------- */
+  .skills {
+    margin-top: 55vh;
+    padding: 80px 20px 100px;
+    text-align: center;
+  }
+
+  .skills h2 {
+    font-size: clamp(1.5rem, 4vw, 2.2rem);
+    font-weight: 700;
+    color: #ffffff;
+  }
+
+  .skills .tags {
+    margin-top: 22px;
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .skills .tag {
+    padding: 10px 22px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #f3eaff;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
     transform: translateY(0);
   }
 
   @media (max-width: 600px) {
-    main { padding: 20px 24px 60px; }
+    main { padding: 24px 24px 0; }
     .section-left { max-width: 100%; }
   }
 </style>
 </head>
 <body>
 
-  <div class="orb orb-1"></div>
-  <div class="orb orb-2"></div>
-  <div class="orb orb-3"></div>
-
   <header>
     <h1 class="title">QSTAR</h1>
     <hr class="divider">
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="main">Main Menu</button>
+      <button class="tab-btn" data-tab="friends">Friends</button>
+    </nav>
   </header>
 
   <main>
-    <section class="section-left">
-      <div class="section-label">Currently working on</div>
+    <div id="tab-main" class="tab-panel active">
+      <section class="section-left">
+        <div class="section-label">Currently working on</div>
 
-      <div class="card">
-        <span class="badge">Released</span>
-        <h2>RYKER'S PAID MENU</h2>
-        <p>yea</p>
-        <a class="card-btn" href="https://discord.gg/ryker" target="_blank" rel="noopener">Join the Discord</a>
+        <div class="card">
+          <span class="badge">Released</span>
+          <h2>RYKER'S PAID MENU</h2>
+          <p>yea</p>
+          <a class="card-btn" href="https://discord.gg/ryker" target="_blank" rel="noopener">Join the Discord</a>
+        </div>
+      </section>
+    </div>
+
+    <div id="tab-friends" class="tab-panel">
+      <div class="section-label">Friends</div>
+      <div class="friends-grid">
+        <div class="friend-card">
+          <div class="avatar">R</div>
+          <h3>Ryker</h3>
+        </div>
+        <div class="friend-card">
+          <div class="avatar">C</div>
+          <h3>CatsTheCoder</h3>
+        </div>
+        <div class="friend-card">
+          <div class="avatar">E</div>
+          <h3>Eljay</h3>
+        </div>
       </div>
-    </section>
+    </div>
   </main>
+
+  <section class="skills reveal">
+    <h2>I know how to code JavaScript and TypeScript</h2>
+    <div class="tags">
+      <span class="tag">JavaScript</span>
+      <span class="tag">TypeScript</span>
+    </div>
+  </section>
+
+  <script>
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+      });
+    });
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.2 });
+    document.querySelectorAll('.reveal').forEach((el) => observer.observe(el));
+  </script>
 
 </body>
 </html>
