@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QSTAR</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    min-height: 100%;
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: linear-gradient(160deg, #a855f7 0%, #7c3aed 35%, #4c1d95 70%, #1e0a3c 100%);
+    background-attachment: fixed;
+    color: #f3eaff;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ---------- Floating orbs (background animation) ---------- */
+  .orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(60px);
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 0;
+    animation: drift 18s ease-in-out infinite alternate;
+  }
+  .orb-1 { width: 420px; height: 420px; background: #c084fc; top: -120px; right: -100px; }
+  .orb-2 { width: 340px; height: 340px; background: #6d28d9; bottom: -80px; left: -120px; animation-delay: -6s; animation-duration: 22s; }
+  .orb-3 { width: 260px; height: 260px; background: #e879f9; top: 45%; left: 55%; animation-delay: -12s; animation-duration: 26s; }
+
+  @keyframes drift {
+    0%   { transform: translate(0, 0) scale(1); }
+    50%  { transform: translate(-40px, 30px) scale(1.1); }
+    100% { transform: translate(30px, -40px) scale(0.95); }
+  }
+
+  /* ---------- Header ---------- */
+  header {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    padding: 90px 20px 50px;
+  }
+
+  h1.title {
+    font-size: clamp(3.5rem, 10vw, 6.5rem);
+    font-weight: 800;
+    letter-spacing: 0.25em;
+    margin-right: -0.25em; /* balance the letter-spacing */
+    background: linear-gradient(90deg, #f5d0fe, #ffffff, #d8b4fe, #f5d0fe);
+    background-size: 300% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: shimmer 6s linear infinite, fadeDown 1s ease both;
+    text-shadow: 0 0 60px rgba(216, 180, 254, 0.35);
+  }
+
+  @keyframes shimmer {
+    to { background-position: 300% center; }
+  }
+
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-30px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .divider {
+    width: 140px;
+    height: 3px;
+    margin: 28px auto 0;
+    border: none;
+    border-radius: 999px;
+    background: linear-gradient(90deg, transparent, #e9d5ff, transparent);
+    animation: growIn 1.2s ease 0.4s both, pulseGlow 3s ease-in-out 1.6s infinite;
+  }
+
+  @keyframes growIn {
+    from { width: 0; opacity: 0; }
+    to   { width: 140px; opacity: 1; }
+  }
+
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 8px rgba(233, 213, 255, 0.4); }
+    50%      { box-shadow: 0 0 22px rgba(233, 213, 255, 0.9); }
+  }
+
+  /* ---------- Main layout ---------- */
+  main {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 30px 40px 80px;
+  }
+
+  .section-left {
+    max-width: 380px;
+    animation: fadeLeft 1s ease 0.7s both;
+  }
+
+  @keyframes fadeLeft {
+    from { opacity: 0; transform: translateX(-40px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  .section-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: #d8b4fe;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .section-label::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(216, 180, 254, 0.5), transparent);
+  }
+
+  /* ---------- Card ---------- */
+  .card {
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 18px;
+    padding: 26px 28px;
+    box-shadow: 0 8px 32px rgba(30, 10, 60, 0.4);
+    transition: transform 0.35s ease, box-shadow 0.35s ease, border-color 0.35s ease;
+    animation: floatCard 6s ease-in-out infinite;
+  }
+
+  .card:hover {
+    transform: translateY(-6px) scale(1.02);
+    border-color: rgba(233, 213, 255, 0.5);
+    box-shadow: 0 16px 48px rgba(30, 10, 60, 0.55), 0 0 30px rgba(192, 132, 252, 0.25);
+    animation-play-state: paused;
+  }
+
+  @keyframes floatCard {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-8px); }
+  }
+
+  .card .badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: #1e0a3c;
+    background: linear-gradient(90deg, #e9d5ff, #c084fc);
+    padding: 5px 12px;
+    border-radius: 999px;
+    margin-bottom: 14px;
+  }
+
+  .card h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-bottom: 10px;
+    color: #ffffff;
+  }
+
+  .card p {
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: rgba(243, 234, 255, 0.8);
+  }
+
+  .card-btn {
+    display: inline-block;
+    margin-top: 20px;
+    padding: 12px 26px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    text-decoration: none;
+    color: #1e0a3c;
+    background: linear-gradient(90deg, #e9d5ff, #c084fc, #e879f9);
+    background-size: 200% auto;
+    border-radius: 999px;
+    box-shadow: 0 4px 18px rgba(192, 132, 252, 0.35);
+    transition: background-position 0.4s ease, transform 0.25s ease, box-shadow 0.25s ease;
+  }
+
+  .card-btn:hover {
+    background-position: 100% center;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(232, 121, 249, 0.5);
+  }
+
+  .card-btn:active {
+    transform: translateY(0);
+  }
+
+  @media (max-width: 600px) {
+    main { padding: 20px 24px 60px; }
+    .section-left { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <header>
+    <h1 class="title">QSTAR</h1>
+    <hr class="divider">
+  </header>
+
+  <main>
+    <section class="section-left">
+      <div class="section-label">Currently working on</div>
+
+      <div class="card">
+        <span class="badge">Released</span>
+        <h2>RYKER'S PAID MENU</h2>
+        <p>yea</p>
+        <a class="card-btn" href="https://discord.gg/ryker" target="_blank" rel="noopener">Join the Discord</a>
+      </div>
+    </section>
+  </main>
+
+</body>
+</html>
