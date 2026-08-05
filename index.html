@@ -128,6 +128,14 @@
     .missing { margin-top: 13px; color: var(--muted); font-size: 12px; }
     .missing summary { cursor: pointer; }
     .missing-list { max-height: 120px; margin-top: 8px; padding: 10px; overflow: auto; border-radius: 7px; color: rgba(248,240,255,.59); background: rgba(10,2,20,.24); font: 11px/1.6 Consolas, Monaco, monospace; white-space: pre-wrap; }
+    .obf-options { display: flex; align-items: center; flex-wrap: wrap; gap: 9px 14px; margin: 12px 2px 0; color: var(--muted); font-size: 11px; }
+    .obf-option { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+    .obf-option input { width: 13px; height: 13px; accent-color: var(--primary-strong); cursor: pointer; }
+    .obf-compat { margin-left: auto; color: rgba(250,247,255,.42); font-size: 10px; }
+    .obf-metrics { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 15px; color: var(--muted); font-size: 10px; }
+    .obf-metrics span { padding: 7px 9px; border: 1px solid rgba(255,255,255,.11); border-radius: 7px; background: rgba(10,2,20,.18); }
+    .obf-metrics strong { margin-right: 3px; color: var(--foreground); font-weight: 600; }
+    .obf-note { margin: 14px 0 0; color: rgba(248,240,255,.46); font-size: 11px; line-height: 1.5; }
     .tool-note { margin: 24px 0 0; color: rgba(248,240,255,.45); font-size: 11px; text-align: center; }
     .view:not(.hidden) { animation: viewReveal .48s cubic-bezier(.2,.75,.25,1) both; }
     .home-intro { animation: floatIn .6s cubic-bezier(.2,.75,.25,1) both; }
@@ -225,6 +233,11 @@
             <div class="tool-card-copy"><h2>frida patcher</h2><p>patches the frida bridge with your symbol map</p></div>
             <span class="card-arrow" aria-hidden="true">↗</span>
           </a>
+          <a class="tool-card" href="#js-obfuscator" data-route="js-obfuscator">
+            <div class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 4l-4 16"/></svg></div>
+            <div class="tool-card-copy"><h2>javascript obfuscation</h2><p>compact a JavaScript file with Frida-friendly output</p></div>
+            <span class="card-arrow" aria-hidden="true">↗</span>
+          </a>
         </nav>
       </div>
     </main>
@@ -280,6 +293,33 @@
       </section>
     </main>
 
+    <main id="obfuscatorView" class="tool-main view hidden">
+      <div class="tool-intro"><h1>javascript obfuscation</h1><p>compact a JavaScript file for a cleaner, Frida-friendly build</p></div>
+      <section>
+        <div class="dropzone" id="obfDropzone" role="button" tabindex="0" aria-label="Upload a JavaScript file">
+          <input id="obfInput" type="file" accept=".js,.mjs,.cjs,text/javascript,application/javascript">
+          <div class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 4l-4 16"/></svg></div>
+          <div class="drop-label">upload a JavaScript file</div>
+          <div class="drop-description">Frida-friendly mode · nothing leaves your browser</div>
+          <button class="browse" id="obfBrowse" type="button">click to browse</button>
+          <div class="drop-hint">.js · .mjs · .cjs</div>
+        </div>
+        <div class="obf-options">
+          <label class="obf-option"><input id="obfStripComments" type="checkbox" checked><span>strip comments</span></label>
+          <label class="obf-option"><input id="obfCompact" type="checkbox" checked><span>compact whitespace</span></label>
+          <span class="obf-compat">preserves globals · no debugger traps</span>
+        </div>
+        <div class="error hidden" id="obfError" role="alert"></div>
+        <div class="loading hidden" id="obfLoading" aria-live="polite"><span class="spinner" aria-hidden="true"></span><span>obfuscating</span></div>
+        <div class="hidden" id="obfResult" aria-live="polite">
+          <div class="done-row"><div><p class="done-title">obfuscation done</p><p class="done-copy" id="obfSummary">output ready</p></div><button class="button" id="clearObf" type="button">Clear</button></div>
+          <div class="obf-metrics"><span><strong id="obfOriginalSize">0 B</strong> original</span><span><strong id="obfOutputSize">0 B</strong> output</span><span><strong id="obfHash">hashing...</strong> sha-256</span></div>
+          <div class="outputs"><h2>output</h2><div class="file-output" data-output="obfuscatedJs"><div class="file-output-head"><span>obfuscated.js</span><div class="file-output-actions"><button class="small-button copy-output" type="button">copy</button><button class="small-button download-output" type="button">download</button></div></div><pre></pre></div></div>
+          <p class="obf-note">Compatibility mode keeps top-level names and Frida menu globals untouched so the script can still be loaded normally.</p>
+        </div>
+      </section>
+    </main>
+
   </div>
 
   <script>
@@ -293,7 +333,7 @@
       const state = { route: "home", getter: null, symbolMap: null, patched: null, outputs: {} };
 
       function showView(route) {
-        const viewByRoute = { home: "homeView", "symbol-getter": "getterView", "frida-gen": "patcherView" };
+        const viewByRoute = { home: "homeView", "symbol-getter": "getterView", "frida-gen": "patcherView", "js-obfuscator": "obfuscatorView" };
         const activeView = viewByRoute[route] || viewByRoute.home;
         state.route = viewByRoute[route] ? route : "home";
         $$(".view").forEach((view) => view.classList.toggle("hidden", view.id !== activeView));
@@ -308,7 +348,7 @@
       function go(route) { location.hash = route === "home" ? "" : route; }
       function routeFromHash() {
         const route = location.hash.replace(/^#/, "") || "home";
-        return ["home", "symbol-getter", "frida-gen"].includes(route) ? route : "home";
+        return ["home", "symbol-getter", "frida-gen", "js-obfuscator"].includes(route) ? route : "home";
       }
       window.addEventListener("hashchange", () => showView(routeFromHash()));
       $("#backButton").addEventListener("click", () => { if (history.length > 1) history.back(); else go("home"); });
@@ -323,7 +363,7 @@
         $$("[data-output]").forEach((box) => { const key = box.dataset.output; const pre = $("pre", box); if (pre && outputs[key] !== undefined) pre.textContent = outputs[key].length > 10000 ? `${outputs[key].slice(0, 10000)}\n\n... (truncated)` : outputs[key]; });
       }
       $$(".copy-output").forEach((button) => button.addEventListener("click", () => { const box = button.closest("[data-output]"); copyText(state.outputs[box.dataset.output] || "", button); }));
-      $$(".download-output").forEach((button) => button.addEventListener("click", () => { const box = button.closest("[data-output]"); const names = { symbolMap: "SymbolMap.json", bnmHeader: "Il2CppMethodNames.hpp", dumperHeader: "Il2Cpp-Headers.hpp", fridaMap: "Frida-Map.js", patchedBridge: "frida-il2cpp-bridge.js" }; downloadFile(names[box.dataset.output] || "output.txt", state.outputs[box.dataset.output] || "", box.dataset.output === "symbolMap" ? "application/json" : "text/plain"); }));
+      $$(".download-output").forEach((button) => button.addEventListener("click", () => { const box = button.closest("[data-output]"); const names = { symbolMap: "SymbolMap.json", bnmHeader: "Il2CppMethodNames.hpp", dumperHeader: "Il2Cpp-Headers.hpp", fridaMap: "Frida-Map.js", patchedBridge: "frida-il2cpp-bridge.js", obfuscatedJs: "obfuscated.js" }; downloadFile(names[box.dataset.output] || "output.txt", state.outputs[box.dataset.output] || "", box.dataset.output === "symbolMap" ? "application/json" : "text/javascript"); }));
 
       function readU16(view, offset) { return view.getUint16(offset, true); }
       function readU32(view, offset) { return view.getUint32(offset, true); }
@@ -448,6 +488,122 @@
       mapDropzone.addEventListener("drop", (event) => processMapFile(event.dataTransfer.files[0]));
       $("#clearPatcher").addEventListener("click", resetPatcher);
 
+      function isJsWordChar(character) { return !!character && /[A-Za-z0-9_$]/.test(character); }
+      function regexCanStart(previousCharacter, previousWord) { return !previousCharacter || /[({[=,:;!&|?+\-*%^~<>]/.test(previousCharacter) || ["return", "throw", "case", "delete", "void", "typeof", "instanceof", "in", "of", "yield", "await"].includes(previousWord); }
+      function transformJavaScript(source, options) {
+        let output = "";
+        let index = 0;
+        let spacePending = false;
+        let newlinePending = false;
+        let previousCharacter = "";
+        let previousWord = "";
+        const length = source.length;
+        const queueSpace = (hasNewline) => { spacePending = true; newlinePending = newlinePending || hasNewline; };
+        const flushSpace = (nextCharacter) => {
+          if (!spacePending) return;
+          if (!options.compact) output += " ";
+          else {
+            const last = output[output.length - 1] || "";
+            if (isJsWordChar(last) && isJsWordChar(nextCharacter)) output += " ";
+            else if (newlinePending && /^(return|throw|break|continue)$/.test(previousWord) && nextCharacter && nextCharacter !== ";") output += "\\n";
+          }
+          spacePending = false;
+          newlinePending = false;
+        };
+        const readQuoted = (delimiter) => {
+          let cursor = index + 1;
+          while (cursor < length) {
+            if (source[cursor] === "\\") cursor += 2;
+            else if (source[cursor] === delimiter) { cursor += 1; break; }
+            else cursor += 1;
+          }
+          return cursor;
+        };
+        while (index < length) {
+          const character = source[index];
+          if (/\\s/.test(character)) {
+            const start = index;
+            let hasNewline = character === "\\n" || character === "\\r";
+            index += 1;
+            while (index < length && /\\s/.test(source[index])) { hasNewline = hasNewline || source[index] === "\\n" || source[index] === "\\r"; index += 1; }
+            queueSpace(hasNewline || index > start + 1 && source.slice(start, index).includes("\\n"));
+            continue;
+          }
+          if (character === "/" && source[index + 1] === "/") {
+            let cursor = index + 2;
+            while (cursor < length && source[cursor] !== "\\n" && source[cursor] !== "\\r") cursor += 1;
+            if (!options.stripComments) { flushSpace("/"); output += source.slice(index, cursor); previousCharacter = "/"; previousWord = ""; }
+            else queueSpace(false);
+            index = cursor;
+            continue;
+          }
+          if (character === "/" && source[index + 1] === "*") {
+            let cursor = index + 2;
+            while (cursor < length - 1 && !(source[cursor] === "*" && source[cursor + 1] === "/")) cursor += 1;
+            cursor = Math.min(length, cursor + 2);
+            if (!options.stripComments) { flushSpace("/"); output += source.slice(index, cursor); previousCharacter = "/"; previousWord = ""; }
+            else queueSpace(source.slice(index, cursor).includes("\\n"));
+            index = cursor;
+            continue;
+          }
+          if (character === "'" || character === '"' || character === "`") {
+            const cursor = readQuoted(character);
+            flushSpace(character); output += source.slice(index, cursor); previousCharacter = character; previousWord = ""; index = cursor; continue;
+          }
+          if (character === "/" && source[index + 1] !== "=" && regexCanStart(previousCharacter, previousWord)) {
+            let cursor = index + 1; let inClass = false;
+            while (cursor < length) {
+              if (source[cursor] === "\\") cursor += 2;
+              else if (source[cursor] === "[") { inClass = true; cursor += 1; }
+              else if (source[cursor] === "]") { inClass = false; cursor += 1; }
+              else if (source[cursor] === "/" && !inClass) { cursor += 1; while (/[A-Za-z]/.test(source[cursor] || "")) cursor += 1; break; }
+              else cursor += 1;
+            }
+            flushSpace("/"); output += source.slice(index, cursor); previousCharacter = "/"; previousWord = ""; index = cursor; continue;
+          }
+          if (isJsWordChar(character)) {
+            let cursor = index + 1; while (cursor < length && isJsWordChar(source[cursor])) cursor += 1;
+            const word = source.slice(index, cursor); flushSpace(word[0]); output += word; previousCharacter = word[word.length - 1]; previousWord = word; index = cursor; continue;
+          }
+          flushSpace(character); output += character; previousCharacter = character; previousWord = ""; index += 1;
+        }
+        return output.trim();
+      }
+      async function sha256(text) {
+        if (!window.crypto || !window.crypto.subtle) return "unavailable";
+        const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+        return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 16);
+      }
+      const obfDropzone = $("#obfDropzone");
+      const obfInput = $("#obfInput");
+      function resetObfuscator() { obfInput.value = ""; $("#obfResult").classList.add("hidden"); $("#obfLoading").classList.add("hidden"); obfDropzone.classList.remove("hidden"); setError("#obfError", ""); }
+      async function processObfuscatorFile(file) {
+        if (!file) return;
+        setError("#obfError", "");
+        if (!/\\.(js|mjs|cjs)$/i.test(file.name)) { setError("#obfError", "JavaScript files only (.js, .mjs, or .cjs)"); return; }
+        if (file.size > 10 * 1024 * 1024) { setError("#obfError", "Please choose a file smaller than 10 MB"); return; }
+        try {
+          const source = await file.text();
+          obfDropzone.classList.add("hidden"); $("#obfLoading").classList.remove("hidden"); await sleep(360);
+          const transformed = transformJavaScript(source, { stripComments: $("#obfStripComments").checked, compact: $("#obfCompact").checked });
+          state.obfuscator = { source, output: transformed, filename: file.name };
+          $("#obfLoading").classList.add("hidden"); $("#obfResult").classList.remove("hidden");
+          $("#obfSummary").textContent = `${file.name} · compatibility-first output ready`;
+          $("#obfOriginalSize").textContent = formatBytes(source.length);
+          $("#obfOutputSize").textContent = formatBytes(transformed.length);
+          $("#obfHash").textContent = await sha256(transformed);
+          fillOutputBoxes({ obfuscatedJs: transformed });
+        } catch (caught) { $("#obfLoading").classList.add("hidden"); obfDropzone.classList.remove("hidden"); setError("#obfError", caught && caught.message ? caught.message : "could not process that JavaScript file"); }
+      }
+      obfDropzone.addEventListener("click", (event) => { if (!event.target.closest("button")) obfInput.click(); });
+      obfDropzone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); obfInput.click(); } });
+      $("#obfBrowse").addEventListener("click", (event) => { event.stopPropagation(); obfInput.click(); });
+      obfInput.addEventListener("change", () => processObfuscatorFile(obfInput.files[0]));
+      ["dragenter", "dragover"].forEach((name) => obfDropzone.addEventListener(name, (event) => { event.preventDefault(); obfDropzone.classList.add("dragging"); }));
+      ["dragleave", "drop"].forEach((name) => obfDropzone.addEventListener(name, (event) => { event.preventDefault(); obfDropzone.classList.remove("dragging"); }));
+      obfDropzone.addEventListener("drop", (event) => processObfuscatorFile(event.dataTransfer.files[0]));
+      $("#clearObf").addEventListener("click", resetObfuscator);
+
       const volumeWrap = $("#volumeWrap");
       $("#volumeButton").addEventListener("click", () => { const open = volumeWrap.classList.toggle("open"); $("#volumeButton").setAttribute("aria-expanded", String(open)); });
       $("#themeButton").addEventListener("click", () => { document.body.classList.toggle("soft-theme"); document.body.style.background = document.body.classList.contains("soft-theme") ? "linear-gradient(145deg, #8b4cbd 0%, #55237b 42%, #2b104a 100%)" : "radial-gradient(circle at 80% -12%, rgba(192, 132, 252, .27), transparent 35%), linear-gradient(145deg, #733eaa 0%, #441b6c 34%, #260c43 65%, #0f041b 100%)"; });
@@ -464,5 +620,5 @@
       }, 1800);
     })();
   </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a26242940df026c8',t:'MTc4NTg5NTc3MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2699c6dfe147815',t:'MTc4NTk3Mjg1MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
