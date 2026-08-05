@@ -128,7 +128,12 @@
     .missing { margin-top: 13px; color: var(--muted); font-size: 12px; }
     .missing summary { cursor: pointer; }
     .missing-list { max-height: 120px; margin-top: 8px; padding: 10px; overflow: auto; border-radius: 7px; color: rgba(248,240,255,.59); background: rgba(10,2,20,.24); font: 11px/1.6 Consolas, Monaco, monospace; white-space: pre-wrap; }
-    .obf-options { display: flex; align-items: center; flex-wrap: wrap; gap: 9px 14px; margin: 12px 2px 0; color: var(--muted); font-size: 11px; }
+    .obf-presets { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 14px 2px 0; }
+    .obf-preset-label { margin-right: 3px; color: rgba(250,247,255,.42); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+    .obf-preset { padding: 6px 9px; border: 1px solid rgba(255,255,255,.13); border-radius: 6px; color: var(--muted); background: rgba(10,2,20,.2); font-size: 10px; cursor: pointer; transition: border-color .18s ease, color .18s ease, background .18s ease, transform .18s ease; }
+    .obf-preset:hover { color: var(--foreground); border-color: var(--border-hover); transform: translateY(-1px); }
+    .obf-preset.active { border-color: rgba(216,180,254,.5); color: #fff; background: rgba(168,85,247,.28); box-shadow: 0 0 14px rgba(168,85,247,.14); }
+    .obf-options { display: flex; align-items: center; flex-wrap: wrap; gap: 9px 14px; margin: 10px 2px 0; color: var(--muted); font-size: 11px; }
     .obf-option { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
     .obf-option input { width: 13px; height: 13px; accent-color: var(--primary-strong); cursor: pointer; }
     .obf-compat { margin-left: auto; color: rgba(250,247,255,.42); font-size: 10px; }
@@ -308,6 +313,13 @@
           <div class="drop-description">Frida-friendly mode · nothing leaves your browser</div>
           <button class="browse" id="obfBrowse" type="button">click to browse</button>
           <div class="drop-hint">.js · .mjs · .cjs</div>
+        </div>
+        <div class="obf-presets" aria-label="Obfuscation presets">
+          <span class="obf-preset-label">preset</span>
+          <button class="obf-preset" type="button" data-obf-preset="low">low</button>
+          <button class="obf-preset" type="button" data-obf-preset="medium">medium</button>
+          <button class="obf-preset active" type="button" data-obf-preset="high">high</button>
+          <button class="obf-preset" type="button" data-obf-preset="extreme">extreme</button>
         </div>
         <div class="obf-options">
           <label class="obf-option"><input id="obfStripComments" type="checkbox" checked><span>strip comments</span></label>
@@ -595,13 +607,30 @@
           }
           flushSpace(character); output += character; previousCharacter = character; previousWord = ""; index += 1;
         }
-        return output.trim();
+        let finalOutput = output.trim();
+        if (options.aggressive) finalOutput = finalOutput.replace(/;+(?=\})/g, "}").replace(/\{;+/g, "{").replace(/;{2,}/g, ";");
+        return finalOutput;
       }
       async function sha256(text) {
         if (!window.crypto || !window.crypto.subtle) return "unavailable";
         const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
         return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 16);
       }
+      const obfPresetSettings = {
+        low: { stripComments: false, compact: false, aggressive: false },
+        medium: { stripComments: true, compact: false, aggressive: false },
+        high: { stripComments: true, compact: true, aggressive: false },
+        extreme: { stripComments: true, compact: true, aggressive: true }
+      };
+      let activeObfPreset = "high";
+      function setObfPreset(name) {
+        const settings = obfPresetSettings[name] || obfPresetSettings.high;
+        activeObfPreset = name;
+        $("#obfStripComments").checked = settings.stripComments;
+        $("#obfCompact").checked = settings.compact;
+        $$('[data-obf-preset]').forEach((button) => button.classList.toggle("active", button.dataset.obfPreset === name));
+      }
+      $$('[data-obf-preset]').forEach((button) => button.addEventListener("click", () => setObfPreset(button.dataset.obfPreset)));
       const obfDropzone = $("#obfDropzone");
       const obfInput = $("#obfInput");
       function resetObfuscator() { obfInput.value = ""; $("#obfResult").classList.add("hidden"); $("#obfLoading").classList.add("hidden"); obfDropzone.classList.remove("hidden"); setError("#obfError", ""); }
@@ -613,7 +642,7 @@
         try {
           const source = await file.text();
           obfDropzone.classList.add("hidden"); $("#obfLoading").classList.remove("hidden"); await sleep(360);
-          const transformed = transformJavaScript(source, { stripComments: $("#obfStripComments").checked, compact: $("#obfCompact").checked });
+          const transformed = transformJavaScript(source, { stripComments: $("#obfStripComments").checked, compact: $("#obfCompact").checked, aggressive: activeObfPreset === "extreme" });
           state.obfuscator = { source, output: transformed, filename: file.name };
           $("#obfLoading").classList.add("hidden"); $("#obfResult").classList.remove("hidden");
           $("#obfSummary").textContent = `${file.name} · compatibility-first output ready`;
@@ -735,5 +764,5 @@
       }, 1800);
     })();
   </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a269b4d4ba3a99f0',t:'MTc4NTk3Mzg1MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a269c0e7bb042225',t:'MTc4NTk3NDM0NA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
