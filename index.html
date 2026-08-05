@@ -238,6 +238,11 @@
             <div class="tool-card-copy"><h2>javascript obfuscation</h2><p>compact a JavaScript file with Frida-friendly output</p></div>
             <span class="card-arrow" aria-hidden="true">↗</span>
           </a>
+          <a class="tool-card" href="#ts-to-js" data-route="ts-to-js">
+            <div class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9h4M9 7v6M14 13l2-2 2 2"/></svg></div>
+            <div class="tool-card-copy"><h2>typescript to javascript</h2><p>convert a .ts file to JavaScript in your browser</p></div>
+            <span class="card-arrow" aria-hidden="true">↗</span>
+          </a>
         </nav>
       </div>
     </main>
@@ -320,6 +325,29 @@
       </section>
     </main>
 
+    <main id="tsView" class="tool-main view hidden">
+      <div class="tool-intro"><h1>typescript to javascript</h1><p>convert a TypeScript file to JavaScript locally</p></div>
+      <section>
+        <div class="dropzone" id="tsDropzone" role="button" tabindex="0" aria-label="Upload a TypeScript file">
+          <input id="tsInput" type="file" accept=".ts,.tsx,text/typescript">
+          <div class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg></div>
+          <div class="drop-label">upload a TypeScript file</div>
+          <div class="drop-description">.ts and .tsx · processed locally</div>
+          <button class="browse" id="tsBrowse" type="button">click to browse</button>
+          <div class="drop-hint">type annotations removed · modern JavaScript kept</div>
+        </div>
+        <div class="obf-options"><label class="obf-option"><input id="tsStripComments" type="checkbox" checked><span>strip comments</span></label><span class="obf-compat">best-effort local conversion</span></div>
+        <div class="error hidden" id="tsError" role="alert"></div>
+        <div class="loading hidden" id="tsLoading" aria-live="polite"><span class="spinner" aria-hidden="true"></span><span>converting</span></div>
+        <div class="hidden" id="tsResult" aria-live="polite">
+          <div class="done-row"><div><p class="done-title">conversion done</p><p class="done-copy" id="tsSummary">JavaScript output ready</p></div><button class="button" id="clearTs" type="button">Clear</button></div>
+          <div class="obf-metrics"><span><strong id="tsOriginalSize">0 B</strong> original</span><span><strong id="tsOutputSize">0 B</strong> output</span></div>
+          <div class="outputs"><h2>output</h2><div class="file-output" data-output="transpiledJs"><div class="file-output-head"><span>output.js</span><div class="file-output-actions"><button class="small-button copy-output" type="button">copy</button><button class="small-button download-output" type="button">download</button></div></div><pre></pre></div></div>
+          <p class="obf-note">Interfaces, type aliases, annotations, enums, access modifiers, and assertions are handled locally where possible.</p>
+        </div>
+      </section>
+    </main>
+
   </div>
 
   <script>
@@ -333,7 +361,7 @@
       const state = { route: "home", getter: null, symbolMap: null, patched: null, outputs: {} };
 
       function showView(route) {
-        const viewByRoute = { home: "homeView", "symbol-getter": "getterView", "frida-gen": "patcherView", "js-obfuscator": "obfuscatorView" };
+        const viewByRoute = { home: "homeView", "symbol-getter": "getterView", "frida-gen": "patcherView", "js-obfuscator": "obfuscatorView", "ts-to-js": "tsView" };
         const activeView = viewByRoute[route] || viewByRoute.home;
         state.route = viewByRoute[route] ? route : "home";
         $$(".view").forEach((view) => view.classList.toggle("hidden", view.id !== activeView));
@@ -348,7 +376,7 @@
       function go(route) { location.hash = route === "home" ? "" : route; }
       function routeFromHash() {
         const route = location.hash.replace(/^#/, "") || "home";
-        return ["home", "symbol-getter", "frida-gen", "js-obfuscator"].includes(route) ? route : "home";
+        return ["home", "symbol-getter", "frida-gen", "js-obfuscator", "ts-to-js"].includes(route) ? route : "home";
       }
       window.addEventListener("hashchange", () => showView(routeFromHash()));
       $("#backButton").addEventListener("click", () => { if (history.length > 1) history.back(); else go("home"); });
@@ -604,6 +632,93 @@
       obfDropzone.addEventListener("drop", (event) => processObfuscatorFile(event.dataTransfer.files[0]));
       $("#clearObf").addEventListener("click", resetObfuscator);
 
+      function stripTypeParameters(parameters) {
+        return parameters.replace(/([A-Za-z_$][\w$]*)(\?)?\s*:\s*[^,=]+(?=(?:,|=|$))/g, "$1");
+      }
+      function findClosingBrace(source, openingIndex) {
+        let depth = 0;
+        for (let index = openingIndex; index < source.length; index += 1) {
+          if (source[index] === "{") depth += 1;
+          else if (source[index] === "}" && --depth === 0) return index;
+        }
+        return -1;
+      }
+      function removeInterfaceBlocks(source) {
+        const pattern = /\b(?:export\s+)?(?:declare\s+)?interface\s+[A-Za-z_$][\w$]*(?:\s*<[^>{}]+>)?(?:\s+extends[^\{]+)?\s*\{/g;
+        let result = source; let match;
+        while ((match = pattern.exec(result))) {
+          const opening = result.indexOf("{", match.index); const closing = findClosingBrace(result, opening);
+          if (closing < 0) break;
+          result = result.slice(0, match.index) + result.slice(closing + 1).replace(/^\s*;?/, ""); pattern.lastIndex = match.index;
+        }
+        return result;
+      }
+      function transpileTypeScript(source, stripComments) {
+        const protectedParts = [];
+        const protect = (value) => { const marker = `__TS_LITERAL_${protectedParts.length}__`; protectedParts.push(value); return marker; };
+        let masked = ""; let index = 0; let previousCharacter = ""; let previousWord = "";
+        while (index < source.length) {
+          const character = source[index];
+          if (character === "/" && source[index + 1] === "/") {
+            let cursor = index + 2; while (cursor < source.length && source[cursor] !== "\n" && source[cursor] !== "\r") cursor += 1;
+            masked += stripComments ? (source.slice(index, cursor).includes("\n") ? "\n" : " ") : protect(source.slice(index, cursor)); index = cursor; continue;
+          }
+          if (character === "/" && source[index + 1] === "*") {
+            let cursor = index + 2; while (cursor < source.length - 1 && !(source[cursor] === "*" && source[cursor + 1] === "/")) cursor += 1; cursor = Math.min(source.length, cursor + 2);
+            masked += stripComments ? (source.slice(index, cursor).includes("\n") ? "\n" : " ") : protect(source.slice(index, cursor)); index = cursor; continue;
+          }
+          if (character === "'" || character === '"' || character === "`") {
+            let cursor = index + 1; while (cursor < source.length) { if (source[cursor] === "\\") cursor += 2; else if (source[cursor] === character) { cursor += 1; break; } else cursor += 1; }
+            masked += protect(source.slice(index, cursor)); previousCharacter = character; previousWord = ""; index = cursor; continue;
+          }
+          if (character === "/" && source[index + 1] !== "=" && regexCanStart(previousCharacter, previousWord)) {
+            let cursor = index + 1; let inClass = false;
+            while (cursor < source.length) { if (source[cursor] === "\\") cursor += 2; else if (source[cursor] === "[") { inClass = true; cursor += 1; } else if (source[cursor] === "]") { inClass = false; cursor += 1; } else if (source[cursor] === "/" && !inClass) { cursor += 1; while (/[A-Za-z]/.test(source[cursor] || "")) cursor += 1; break; } else cursor += 1; }
+            masked += protect(source.slice(index, cursor)); previousCharacter = "/"; previousWord = ""; index = cursor; continue;
+          }
+          if (isJsWordChar(character)) { let cursor = index + 1; while (cursor < source.length && isJsWordChar(source[cursor])) cursor += 1; const word = source.slice(index, cursor); masked += word; previousCharacter = word[word.length - 1]; previousWord = word; index = cursor; continue; }
+          masked += character; if (!/\s/.test(character)) { previousCharacter = character; previousWord = ""; } index += 1;
+        }
+        let code = removeInterfaceBlocks(masked);
+        code = code.replace(/^\s*import\s+type\s+[^;]+;?\s*$/gm, "");
+        code = code.replace(/\b(?:export\s+)?type\s+[A-Za-z_$][\w$]*(?:\s*<[^>{}]+>)?\s*=\s*(?:\{[^{}]*\}|[^;]+);?/g, "");
+        code = code.replace(/\b(export\s+)?enum\s+([A-Za-z_$][\w$]*)\s*\{([^{}]*)\}/g, (match, exported, name, body) => { let next = 0; const members = body.split(",").map((item) => item.trim()).filter(Boolean).map((item) => { const parts = item.split(/\s*=\s*/); const key = parts[0].trim(); const value = parts[1] ? parts[1].trim() : String(next++); if (parts[1] && /^-?\d+$/.test(parts[1].trim())) next = Number(parts[1].trim()) + 1; return `${key}: ${value}`; }); return `${exported || ""}const ${name} = { ${members.join(", ")} };`; });
+        code = code.replace(/\b(?:public|private|protected|readonly|abstract|override|declare)\s+/g, "");
+        code = code.replace(/\s+implements\s+[^\{]+(?=\{)/g, " ");
+        code = code.replace(/\s+as\s+(?:const\b|[A-Za-z_$][\w$]*(?:\s*<[^;,)]+>)?(?:\[\])?(?:\s*\|\s*[A-Za-z_$][\w$]*)*)/g, "");
+        code = code.replace(/([A-Za-z_$][\w$]*)!(?=\s*[.;,)\]\[+\-*\/%&|?:])/g, "$1");
+        code = code.replace(/([A-Za-z_$][\w$]*)\?\s*(?=[:;,)=])/g, "$1");
+        code = code.replace(/(\b(?:function\s+[A-Za-z_$][\w$]*|class\s+[A-Za-z_$][\w$]*))\s*<[^>{}]+>/g, "$1");
+        code = code.replace(/(function\s*[A-Za-z_$][\w$]*\s*)\(([^()]*)\)/g, (match, prefix, parameters) => `${prefix}(${stripTypeParameters(parameters)})`);
+        code = code.replace(/\(([^()\n]*)\)\s*(?::\s*[^=({;]+)?=>/g, (match, parameters) => `(${stripTypeParameters(parameters)}) =>`);
+        code = code.replace(/\b(const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*\?)?\s*:\s*[^=;\n]+(?=\s*[=;,\n])/g, "$1 $2");
+        code = code.replace(/(\))\s*:\s*[^=({;]+(?=\s*(?:=>|\{))/g, "$1");
+        code = code.replace(/([A-Za-z_$][\w$]*)\s*<[^>{}]+>\s*(?=\()/g, "$1");
+        return code.replace(/__TS_LITERAL_(\d+)__/g, (match, part) => protectedParts[Number(part)] || "").trim();
+      }
+      const tsDropzone = $("#tsDropzone");
+      const tsInput = $("#tsInput");
+      function resetTypeScript() { tsInput.value = ""; $("#tsResult").classList.add("hidden"); $("#tsLoading").classList.add("hidden"); tsDropzone.classList.remove("hidden"); setError("#tsError", ""); }
+      async function processTypeScriptFile(file) {
+        if (!file) return;
+        setError("#tsError", "");
+        if (!/\.(ts|tsx)$/i.test(file.name)) { setError("#tsError", "TypeScript files only (.ts or .tsx)"); return; }
+        if (file.size > 10 * 1024 * 1024) { setError("#tsError", "Please choose a file smaller than 10 MB"); return; }
+        try {
+          const source = await file.text(); tsDropzone.classList.add("hidden"); $("#tsLoading").classList.remove("hidden"); await sleep(320);
+          const output = transpileTypeScript(source, $("#tsStripComments").checked); state.outputs.transpiledJs = output;
+          $("#tsLoading").classList.add("hidden"); $("#tsResult").classList.remove("hidden"); $("#tsSummary").textContent = `${file.name} · JavaScript output ready`; $("#tsOriginalSize").textContent = formatBytes(source.length); $("#tsOutputSize").textContent = formatBytes(output.length); fillOutputBoxes({ transpiledJs: output });
+        } catch (caught) { $("#tsLoading").classList.add("hidden"); tsDropzone.classList.remove("hidden"); setError("#tsError", caught && caught.message ? caught.message : "could not convert that TypeScript file"); }
+      }
+      tsDropzone.addEventListener("click", (event) => { if (!event.target.closest("button")) tsInput.click(); });
+      tsDropzone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); tsInput.click(); } });
+      $("#tsBrowse").addEventListener("click", (event) => { event.stopPropagation(); tsInput.click(); });
+      tsInput.addEventListener("change", () => processTypeScriptFile(tsInput.files[0]));
+      ["dragenter", "dragover"].forEach((name) => tsDropzone.addEventListener(name, (event) => { event.preventDefault(); tsDropzone.classList.add("dragging"); }));
+      ["dragleave", "drop"].forEach((name) => tsDropzone.addEventListener(name, (event) => { event.preventDefault(); tsDropzone.classList.remove("dragging"); }));
+      tsDropzone.addEventListener("drop", (event) => processTypeScriptFile(event.dataTransfer.files[0]));
+      $("#clearTs").addEventListener("click", resetTypeScript);
+
       const volumeWrap = $("#volumeWrap");
       $("#volumeButton").addEventListener("click", () => { const open = volumeWrap.classList.toggle("open"); $("#volumeButton").setAttribute("aria-expanded", String(open)); });
       $("#themeButton").addEventListener("click", () => { document.body.classList.toggle("soft-theme"); document.body.style.background = document.body.classList.contains("soft-theme") ? "linear-gradient(145deg, #8b4cbd 0%, #55237b 42%, #2b104a 100%)" : "radial-gradient(circle at 80% -12%, rgba(192, 132, 252, .27), transparent 35%), linear-gradient(145deg, #733eaa 0%, #441b6c 34%, #260c43 65%, #0f041b 100%)"; });
@@ -620,5 +735,5 @@
       }, 1800);
     })();
   </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2699c6dfe147815',t:'MTc4NTk3Mjg1MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a269aa521eaf4616',t:'MTc4NTk3MzQxOQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
