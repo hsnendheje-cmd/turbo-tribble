@@ -533,7 +533,7 @@
           else {
             const last = output[output.length - 1] || "";
             if (isJsWordChar(last) && isJsWordChar(nextCharacter)) output += " ";
-            else if (newlinePending && /^(return|throw|break|continue)$/.test(previousWord) && nextCharacter && nextCharacter !== ";") output += "\\n";
+            else if (newlinePending && /^(return|throw|break|continue)$/.test(previousWord) && nextCharacter && nextCharacter !== ";") output += "\n";
           }
           spacePending = false;
           newlinePending = false;
@@ -549,17 +549,17 @@
         };
         while (index < length) {
           const character = source[index];
-          if (/\\s/.test(character)) {
+          if (/\s/.test(character)) {
             const start = index;
-            let hasNewline = character === "\\n" || character === "\\r";
+            let hasNewline = character === "\n" || character === "\r";
             index += 1;
-            while (index < length && /\\s/.test(source[index])) { hasNewline = hasNewline || source[index] === "\\n" || source[index] === "\\r"; index += 1; }
-            queueSpace(hasNewline || index > start + 1 && source.slice(start, index).includes("\\n"));
+            while (index < length && /\s/.test(source[index])) { hasNewline = hasNewline || source[index] === "\n" || source[index] === "\r"; index += 1; }
+            queueSpace(hasNewline || index > start + 1 && source.slice(start, index).includes("\n"));
             continue;
           }
           if (character === "/" && source[index + 1] === "/") {
             let cursor = index + 2;
-            while (cursor < length && source[cursor] !== "\\n" && source[cursor] !== "\\r") cursor += 1;
+            while (cursor < length && source[cursor] !== "\n" && source[cursor] !== "\r") cursor += 1;
             if (!options.stripComments) { flushSpace("/"); output += source.slice(index, cursor); previousCharacter = "/"; previousWord = ""; }
             else queueSpace(false);
             index = cursor;
@@ -570,7 +570,7 @@
             while (cursor < length - 1 && !(source[cursor] === "*" && source[cursor + 1] === "/")) cursor += 1;
             cursor = Math.min(length, cursor + 2);
             if (!options.stripComments) { flushSpace("/"); output += source.slice(index, cursor); previousCharacter = "/"; previousWord = ""; }
-            else queueSpace(source.slice(index, cursor).includes("\\n"));
+            else queueSpace(source.slice(index, cursor).includes("\n"));
             index = cursor;
             continue;
           }
@@ -608,7 +608,7 @@
       async function processObfuscatorFile(file) {
         if (!file) return;
         setError("#obfError", "");
-        if (!/\\.(js|mjs|cjs)$/i.test(file.name)) { setError("#obfError", "JavaScript files only (.js, .mjs, or .cjs)"); return; }
+        if (!/\.(js|mjs|cjs)$/i.test(file.name)) { setError("#obfError", "JavaScript files only (.js, .mjs, or .cjs)"); return; }
         if (file.size > 10 * 1024 * 1024) { setError("#obfError", "Please choose a file smaller than 10 MB"); return; }
         try {
           const source = await file.text();
@@ -735,5 +735,5 @@
       }, 1800);
     })();
   </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a269aa521eaf4616',t:'MTc4NTk3MzQxOQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a269b4d4ba3a99f0',t:'MTc4NTk3Mzg1MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
