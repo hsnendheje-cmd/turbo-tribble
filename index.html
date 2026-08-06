@@ -428,7 +428,11 @@
           <div class="outputs"><h2>output</h2><div class="file-output" data-output="dumpCs"><div class="file-output-head"><span>dump.cs</span><div class="file-output-actions"><button class="small-button copy-output" type="button">copy</button><button class="small-button download-output" type="button">download</button></div></div><pre></pre></div></div>
         </div>
       </section>
-      <p class="tool-note">offline, best-effort IL2CPP metadata dump · encrypted metadata is reported clearly</p>
+      <p class="tool-note">offline, best-effort IL2CPP metadata dump · encrypted metadata is auto-decrypted where possible</p>
+      <div id="decryptedDownloadWrap" style="display:none;margin-top:16px">
+        <p style="color:var(--muted);font-size:13px;margin:0 0 10px">✓ metadata was auto-decrypted — download the decrypted file for use with other tools</p>
+        <button id="decryptedDownloadBtn" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border:0;border-radius:9px;background:var(--primary-strong);color:#fff;font-size:13px;font-weight:600;cursor:pointer">download decrypted global-metadata.dat</button>
+      </div>
     </main>
 
   </div>
@@ -444,7 +448,7 @@
       const state = { route: "home", getter: null, symbolMap: null, patched: null, outputs: {} };
 
       function showView(route) {
-        const viewByRoute = { home: "homeView", "symbol-getter": "getterView", "frida-gen": "patcherView", "js-obfuscator": "obfuscatorView", "ts-to-js": "tsView", "dump-game": "dumpView", "meta-decrypt": "metaDecryptView" };
+        const viewByRoute = { home: "homeView", "symbol-getter": "getterView", "frida-gen": "patcherView", "js-obfuscator": "obfuscatorView", "ts-to-js": "tsView", "dump-game": "dumpView" };
         const activeView = viewByRoute[route] || viewByRoute.home;
         state.route = viewByRoute[route] ? route : "home";
         $$(".view").forEach((view) => view.classList.toggle("hidden", view.id !== activeView));
@@ -459,7 +463,7 @@
       function go(route) { location.hash = route === "home" ? "" : route; }
       function routeFromHash() {
         const route = location.hash.replace(/^#/, "") || "home";
-        return ["home", "symbol-getter", "frida-gen", "js-obfuscator", "ts-to-js", "dump-game", "meta-decrypt"].includes(route) ? route : "home";
+        return ["home", "symbol-getter", "frida-gen", "js-obfuscator", "ts-to-js", "dump-game"].includes(route) ? route : "home";
       }
       window.addEventListener("hashchange", () => showView(routeFromHash()));
       $("#backButton").addEventListener("click", () => { if (history.length > 1) history.back(); else go("home"); });
@@ -556,7 +560,132 @@
         if (!bytes || bytes.length < 8) throw new Error("global-metadata.dat is too small");
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const magic = readDumpU32(view, 0);
-        if (magic !== 0xFAB11BAF) return { encrypted: true, magic: dumpHex(magic), version: readDumpI32(view, 4), classes: [], stats: { fields: 0, methods: 0, classes: 0 } };
+        if (magic !== 0xFAB11BAF) {
+          // ── AUTO-DECRYPT ENGINE ────────────────────────────────────────
+          // Try every known decryption scheme before giving up
+          const tryDecrypt = (buf) => {
+            const u32le = (b,o) => ((b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0);
+            const checkMagic = (b) => b.length >= 4 && u32le(b,0) === 0xFAB11BAF;
+            const xorBuf = (buf, key) => { const o = new Uint8Array(buf.length); for (let i=0;i<buf.length;i++) o[i]=buf[i]^key[i%key.length]; return o; };
+
+            // 1. Magic-derived 4-byte XOR key (fastest, works on most games)
+            const k4 = [buf[0]^0xAF, buf[1]^0x1B, buf[2]^0xB1, buf[3]^0xFA];
+            let out = xorBuf(buf, k4);
+            if (checkMagic(out)) return { data:out, method:`XOR [${k4.map(k=>"0x"+k.toString(16).padStart(2,"0")).join(",")}]` };
+
+            // 2. Single-byte XOR brute force 0x00-0xFF
+            for (let b=0;b<256;b++) { out=xorBuf(buf,[b]); if(checkMagic(out)) return {data:out,method:`XOR 0x${b.toString(16).padStart(2,"0")}`}; }
+
+            // 3. Rolling XOR forward
+            out = new Uint8Array(buf.length); out[0]=buf[0];
+            for (let i=1;i<buf.length;i++) out[i]=buf[i]^buf[i-1];
+            if (checkMagic(out)) return {data:out,method:"rolling XOR (forward)"};
+
+            // 4. Rolling XOR reverse
+            out = new Uint8Array(buf.length); out[buf.length-1]=buf[buf.length-1];
+            for (let i=buf.length-2;i>=0;i--) out[i]=buf[i]^buf[i+1];
+            if (checkMagic(out)) return {data:out,method:"rolling XOR (reverse)"};
+
+            // 5. Bitwise NOT
+            out = new Uint8Array(buf.length); for (let i=0;i<buf.length;i++) out[i]=(~buf[i])&0xFF;
+            if (checkMagic(out)) return {data:out,method:"bitwise NOT"};
+
+            // 6. ADD/SUB byte arithmetic
+            for (let d=1;d<256;d++) {
+              out=new Uint8Array(buf.length); for(let i=0;i<buf.length;i++) out[i]=(buf[i]+d)&0xFF;
+              if(checkMagic(out)) return {data:out,method:`ADD 0x${d.toString(16)}`};
+              out=new Uint8Array(buf.length); for(let i=0;i<buf.length;i++) out[i]=(buf[i]-d+256)&0xFF;
+              if(checkMagic(out)) return {data:out,method:`SUB 0x${d.toString(16)}`};
+            }
+
+            // 7. Header skip (4/8/16/32/64/128/256 bytes)
+            for (const skip of [4,8,16,32,64,128,256]) {
+              if (buf.length > skip+4) {
+                const sl = buf.slice(skip);
+                if (checkMagic(sl)) return {data:sl,method:`header skip ${skip}b`};
+                const sk=[sl[0]^0xAF,sl[1]^0x1B,sl[2]^0xB1,sl[3]^0xFA];
+                const so=xorBuf(sl,sk); if(checkMagic(so)) return {data:so,method:`skip ${skip}b + XOR`};
+              }
+            }
+
+            // 8. File-size derived XOR
+            const sz = buf.length;
+            for (const key of [[sz&0xFF],[(sz>>8)&0xFF],[sz&0xFF,(sz>>8)&0xFF,(sz>>16)&0xFF,(sz>>24)&0xFF]]) {
+              out=xorBuf(buf,key); if(checkMagic(out)) return {data:out,method:`file-size XOR`};
+            }
+
+            // 9. Common multi-byte XOR keys
+            const knownKeys = [
+              [0xAB,0xCD,0xEF,0x12],[0xDE,0xAD,0xBE,0xEF],[0x12,0x34,0x56,0x78],
+              [0xFF,0x00,0xFF,0x00],[0xAA,0xBB,0xCC,0xDD],[0x69,0x96,0x69,0x96],
+              [0xC0,0xFF,0xEE,0x00],[0xBA,0xDC,0x0D,0xE0],[0x13,0x37,0x13,0x37],
+              [0x42,0x00,0x42,0x00],[0xFE,0xED,0xFA,0xCE],[0xCA,0xFE,0xBA,0xBE],
+              [0x55,0xAA,0x55,0xAA],[0x1A,0x2B,0x3C,0x4D],[0xA1,0xB2,0xC3,0xD4],
+              [0x5A,0xA5,0x5A,0xA5],[0x96,0x69,0x96,0x69],[0xBE,0xEF,0xCA,0xFE],
+              [0x0B,0xAD,0xF0,0x0D],[0xC0,0xDE,0xC0,0xDE],[0xF0,0x0D,0xBE,0xEF],
+            ];
+            for (const key of knownKeys) { out=xorBuf(buf,key); if(checkMagic(out)) return {data:out,method:`known XOR [${key.map(k=>"0x"+k.toString(16)).join(",")}]`}; }
+
+            // 10. Frequency analysis — most common byte as XOR key
+            const freq=new Array(256).fill(0); for(const b of buf) freq[b]++;
+            const topBytes=[...freq.map((c,i)=>({c,i}))].sort((a,b)=>b.c-a.c).slice(0,16);
+            for(const {i:b} of topBytes){out=xorBuf(buf,[b]);if(checkMagic(out))return{data:out,method:`freq-analysis XOR 0x${b.toString(16).padStart(2,"0")}`};}
+
+            // 11. Byte-pair swap
+            out=new Uint8Array(buf.length);
+            for(let i=0;i<buf.length;i+=2){out[i]=buf[i+1]!==undefined?buf[i+1]:buf[i];out[i+1]=buf[i];}
+            if(checkMagic(out)) return {data:out,method:"byte-pair swap"};
+
+            return null;
+          };
+
+          const decResult = tryDecrypt(bytes);
+          if (decResult) {
+            // Re-parse with decrypted bytes
+            const decBytes = decResult.data;
+            const decView = new DataView(decBytes.buffer, decBytes.byteOffset, decBytes.byteLength);
+            const decMagic = decView.getUint32(0, true);
+            if (decMagic === 0xFAB11BAF) {
+              // Store decrypted bytes for download later
+              if (typeof window !== "undefined") {
+                window._decryptedMetadata = { data: decBytes, method: decResult.method };
+              }
+              // Re-run parse with decrypted bytes
+              bytes = decBytes;
+              const newView = decView;
+              // Fall through to normal parse below with new bytes/view
+              return (() => {
+                const view2 = new DataView(decBytes.buffer, decBytes.byteOffset, decBytes.byteLength);
+                const readI32_2 = (o) => o>=0&&o+4<=decBytes.byteLength?view2.getInt32(o,true):0;
+                const readU16_2 = (o) => o>=0&&o+2<=decBytes.byteLength?view2.getUint16(o,true):0;
+                const readU32_2 = (o) => o>=0&&o+4<=decBytes.byteLength?view2.getUint32(o,true):0;
+                const header2 = {};
+                DUMP_HEADER_FIELDS.forEach((name,index)=>{const offset=8+index*8;header2[name]={offset:readI32_2(offset),bytes:readI32_2(offset+4)};});
+                const stringAt2=(index)=>{if(index===undefined||index===null||index<0||!header2.strings||!header2.strings.bytes)return"";const position=header2.strings.offset+index;return position>=0&&position<decBytes.length?cString(decBytes,position):""};
+                const typeBytes2=Math.max(0,header2.typeDefinitions.bytes);
+                const typeStride2=[100,104,96,88,112].find((size)=>typeBytes2>0&&typeBytes2%size===0)||100;
+                const typeCount2=Math.floor(typeBytes2/typeStride2);
+                const fieldStride2=12,fieldCount2=Math.floor(Math.max(0,header2.fields.bytes)/fieldStride2);
+                const methodStride2=[52,56,48,40].find((size)=>header2.methods.bytes>0&&header2.methods.bytes%size===0)||52;
+                const methodCount2=Math.floor(Math.max(0,header2.methods.bytes)/methodStride2);
+                const genericContainerStride2=16,genericParameterStride2=16;
+                const genericContainers2=[],genericParameters2=[];
+                for(let index=0;index<Math.floor(Math.max(0,header2.genericContainers.bytes)/genericContainerStride2);index++){const position=header2.genericContainers.offset+index*genericContainerStride2;genericContainers2.push({owner:readI32_2(position),count:readI32_2(position+4),start:readI32_2(position+8)});}
+                for(let index=0;index<Math.floor(Math.max(0,header2.genericParameters.bytes)/genericParameterStride2);index++){const position=header2.genericParameters.offset+index*genericParameterStride2;genericParameters2.push({name:stringAt2(readI32_2(position)),owner:readI32_2(position+8)});}
+                const genericNames2=(ci)=>{const c=genericContainers2[ci];if(!c)return[];return genericParameters2.slice(c.start,c.start+c.count).map((p,i)=>dumpName(p.name,`T${i}`));};
+                const fields2=[];for(let i=0;i<fieldCount2;i++){const p=header2.fields.offset+i*fieldStride2;fields2.push({name:stringAt2(readI32_2(p)),typeIndex:readI32_2(p+4),token:readU32_2(p+8)});}
+                const methods2=[];for(let i=0;i<methodCount2;i++){const p=header2.methods.offset+i*methodStride2;methods2.push({name:stringAt2(readI32_2(p)),returnType:readI32_2(p+4),parameterStart:readI32_2(p+8),genericContainer:readI32_2(p+16),token:readU32_2(p+40),flags:readU16_2(p+44),slot:readU16_2(p+48),parameterCount:readU16_2(p+50)});}
+                const types2=[];for(let i=0;i<typeCount2;i++){const p=header2.typeDefinitions.offset+i*typeStride2;const flags=readU32_2(p+40);types2.push({index:i,name:stringAt2(readI32_2(p)),namespace:stringAt2(readI32_2(p+4)),parentIndex:readI32_2(p+20),genericContainer:readI32_2(p+36),flags,fieldStart:readI32_2(p+44),methodStart:readI32_2(p+52),fieldCount:readU16_2(p+80),methodCount:readU16_2(p+76),token:readU32_2(p+96)});}
+                const typeByIndex2=Object.fromEntries(types2.map(t=>[t.index,t]));
+                const accessName2=(flags)=>({1:"private",2:"private",3:"internal",4:"protected",5:"protected internal",6:"public"}[flags&7]||"public");
+                const typeDeclaration2=(type)=>{const it=Boolean(type.flags&0x20);const mods=[accessName2(type.flags)];if(!it&&type.flags&0x80)mods.push("abstract");if(!it&&type.flags&0x100)mods.push("sealed");const gen=genericNames2(type.genericContainer);const par=type.parentIndex>=0&&typeByIndex2[type.parentIndex]?` : ${dumpName(typeByIndex2[type.parentIndex].name,"BaseType")}`:"";return`${mods.join(" ")} ${it?"interface":"class"} ${dumpName(type.name,`TypeDef${type.index}`)}${gen.length?`<${gen.join(", ")}>`:""}${par}`;};
+                const classes2=types2.map(type=>({...type,fields:fields2.slice(type.fieldStart,type.fieldStart+type.fieldCount),methods:methods2.slice(type.methodStart,type.methodStart+type.methodCount),declaration:typeDeclaration2(type),genericNames:genericNames2(type.genericContainer)}));
+                return {encrypted:false,decrypted:true,decryptMethod:decResult.method,version:readI32_2(4),header:header2,classes:classes2,fields:fields2,methods:methods2,stats:{classes:classes2.length,fields:fields2.length,methods:methods2.length},typeByIndex:typeByIndex2};
+              })();
+            }
+          }
+          return { encrypted: true, magic: dumpHex(magic), version: readDumpI32(view, 4), classes: [], stats: { fields: 0, methods: 0, classes: 0 } };
+        }
         const header = {};
         DUMP_HEADER_FIELDS.forEach((name, index) => { const offset = 8 + index * 8; header[name] = { offset: readDumpI32(view, offset), bytes: readDumpI32(view, offset + 4) }; });
         const stringAt = (index) => { if (index === undefined || index === null || index < 0 || !header.strings || !header.strings.bytes) return ""; const position = header.strings.offset + index; return position >= 0 && position < bytes.length ? cString(bytes, position) : ""; };
@@ -610,7 +739,8 @@
         const lines = ["// Dump generated by IL2CPP Symbol Tools", `// Metadata: ${names.metadata || "not provided"}`, `// Binary: ${names.binary || "not provided"}`, "// This is a best-effort offline dump. Unknown values are marked instead of guessed.", ""];
         const limitations = [];
         if (!metadata) limitations.push("global-metadata.dat was not provided");
-        if (metadata && metadata.encrypted) { limitations.push(`global-metadata.dat does not have the expected AF 1B B1 FA magic (found ${metadata.magic}); it may be encrypted or protected`); lines.push("// WARNING: global-metadata.dat is encrypted or uses an unsupported format.", "// Class, field, and method recovery is unavailable without decryption.", ""); }
+        if (metadata && metadata.encrypted) { limitations.push(`global-metadata.dat does not have the expected AF 1B B1 FA magic (found ${metadata.magic}); scheme not auto-detected — key may be in libil2cpp.so`); lines.push("// WARNING: global-metadata.dat is encrypted and the scheme was not auto-detected.", "// Class, field, and method recovery is unavailable without decryption.", "// Tip: use the metadata decryptor tool or provide libil2cpp.so for key extraction.", ""); }
+        if (metadata && metadata.decrypted) { lines.unshift(`// AUTO-DECRYPTED: ${metadata.decryptMethod}`, ""); }
         if (!binary || binary.error) limitations.push(binary && binary.error ? binary.error : "libil2cpp.so was not provided");
         const exportMap = binary && binary.map ? binary.map : {};
         if (metadata && !metadata.encrypted && metadata.classes.length) {
@@ -650,6 +780,7 @@
       function setDumpProgress(value, label) { $("#dumpProgressBar").style.width = `${value}%`; $("#dumpProgressPercent").textContent = `${value}%`; $("#dumpProgressLabel").textContent = label; }
       async function runDump() {
         if (!dumpState.metadata && !dumpState.binary) { setError("#dumpError", "add at least one file first"); return; }
+        window._decryptedMetadata = null; // reset
         setError("#dumpError", ""); $("#dumpResult").classList.add("hidden"); $("#dumpLoading").classList.remove("hidden"); setDumpProgress(5, "reading files"); await sleep(240);
         try {
           let metadata = null; let binary = null;
@@ -971,574 +1102,5 @@
       }, 1800);
     })();
   </script>
-
-    <!-- ═══════════════════════════════════════════════════ -->
-    <!-- METADATA DECRYPTOR VIEW -->
-    <!-- ═══════════════════════════════════════════════════ -->
-    <main id="metaDecryptView" class="tool-main view hidden">
-      <div class="tool-intro">
-        <h1>metadata decryptor</h1>
-        <p>drop an encrypted global-metadata.dat — the tool tries every known decryption scheme: XOR rolling key, XOR fixed key brute-force, AES-256-CBC with known keys, custom Unity obfuscation patterns, and byte-frequency analysis. outputs the decrypted file + a report.</p>
-      </div>
-
-      <div class="dropzone" id="metaDropzone" role="button" tabindex="0" aria-label="Upload global-metadata.dat">
-        <svg style="width:36px;height:36px;margin-bottom:12px;color:var(--primary);opacity:.7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>
-        <p style="margin:0 0 4px;font-weight:600">drop global-metadata.dat here</p>
-        <p style="margin:0;font-size:12px;color:var(--muted)">processed entirely in your browser · nothing uploaded</p>
-        <input type="file" id="metaFileInput" accept=".dat,*" style="display:none">
-      </div>
-
-      <div id="metaFileInfo" style="display:none;margin:16px 0;padding:14px 16px;border:1px solid var(--border);border-radius:10px;background:var(--card);font-size:13px">
-        <div style="display:flex;align-items:center;gap:10px">
-          <svg style="width:16px;height:16px;flex-shrink:0;color:var(--primary)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
-          <span id="metaFileName" style="font-weight:600"></span>
-          <span id="metaFileSize" style="color:var(--muted)"></span>
-        </div>
-        <div id="metaMagicInfo" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-      </div>
-
-      <div id="metaProgressWrap" style="display:none;margin:20px 0">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px;color:var(--muted)">
-          <span id="metaProgressLabel">scanning...</span>
-          <span id="metaProgressPct">0%</span>
-        </div>
-        <div style="height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden">
-          <div id="metaProgressBar" style="height:100%;width:0%;background:var(--primary);border-radius:3px;transition:width .2s ease"></div>
-        </div>
-      </div>
-
-      <div id="metaError" class="error-msg" style="display:none"></div>
-
-      <button id="metaDecryptBtn" class="primary-button" disabled style="margin:20px 0 0">decrypt &amp; analyse</button>
-
-      <div id="metaResults" style="display:none;margin-top:28px">
-        <div id="metaStatusBadge" style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;margin-bottom:20px;font-size:13px;font-weight:600"></div>
-
-        <div class="outputs">
-          <h2>decryption report</h2>
-          <div class="output-box" id="metaReport" style="font-size:12px;line-height:1.6;white-space:pre-wrap;max-height:320px;overflow-y:auto"></div>
-        </div>
-
-        <div class="outputs" id="metaDownloadWrap" style="margin-top:20px;display:none">
-          <h2>decrypted file</h2>
-          <p style="color:var(--muted);font-size:13px;margin:0 0 12px">download the decrypted global-metadata.dat and use it with the dump tool or Il2CppDumper</p>
-          <button id="metaDownloadBtn" class="primary-button">download decrypted .dat</button>
-        </div>
-
-        <div class="outputs" id="metaClassWrap" style="margin-top:20px;display:none">
-          <h2>recovered classes preview</h2>
-          <div class="output-box" id="metaClassPreview" style="font-size:11px;line-height:1.5;max-height:400px;overflow-y:auto"></div>
-        </div>
-      </div>
-
-      <p class="tool-note">offline · all processing in-browser · no data leaves your device</p>
-    </main>
-
-    <style>
-      #metaDecryptView .primary-button { display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 24px;border:0;border-radius:9px;background:var(--primary-strong);color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background .18s,opacity .18s,transform .12s; }
-      #metaDecryptView .primary-button:hover:not(:disabled) { background:#9333ea; }
-      #metaDecryptView .primary-button:disabled { opacity:.45;cursor:not-allowed; }
-      #metaDecryptView .error-msg { padding:12px 14px;border-radius:8px;background:rgba(245,167,203,.1);border:1px solid rgba(245,167,203,.3);color:var(--danger);font-size:13px; }
-      #metaDecryptView .output-box { padding:14px;border:1px solid var(--border);border-radius:10px;background:rgba(0,0,0,.25);font-family:monospace;color:var(--foreground); }
-      #metaDecryptView .outputs { margin-top:0; }
-      #metaDecryptView .outputs h2 { margin:0 0 12px;font-size:15px;font-weight:600; }
-      .badge-success { background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:#4ade80; }
-      .badge-partial { background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fbbf24; }
-      .badge-fail    { background:rgba(245,167,203,.1);border:1px solid rgba(245,167,203,.3);color:var(--danger); }
-    </style>
-
-    <script>
-    // ═══════════════════════════════════════════════════════════
-    // METADATA DECRYPTOR ENGINE
-    // Tries every known scheme used by Unity IL2CPP games to
-    // protect/obfuscate global-metadata.dat
-    // ═══════════════════════════════════════════════════════════
-    (function() {
-
-      const MAGIC = 0xFAB11BAF;
-
-      // ── Known XOR keys used by popular games/protectors ──
-      const KNOWN_XOR_KEYS = [
-        // single-byte XOR
-        ...Array.from({length:256},(_,i)=>[i]),
-        // common 4-byte keys
-        [0xAB,0xCD,0xEF,0x12],[0xDE,0xAD,0xBE,0xEF],[0x12,0x34,0x56,0x78],
-        [0xFF,0x00,0xFF,0x00],[0xAA,0xBB,0xCC,0xDD],[0x11,0x22,0x33,0x44],
-        [0xFA,0xB1,0x1B,0xAF],[0x01,0x02,0x03,0x04],[0x10,0x20,0x30,0x40],
-        // game-specific known keys
-        [0x69,0x96,0x69,0x96],[0xC0,0xFF,0xEE,0x00],[0xBA,0xDC,0x0D,0xE0],
-        [0x13,0x37,0x13,0x37],[0x42,0x00,0x42,0x00],[0xFE,0xED,0xFA,0xCE],
-        [0xCA,0xFE,0xBA,0xBE],[0x00,0xFF,0x00,0xFF],[0x55,0xAA,0x55,0xAA],
-        [0x1A,0x2B,0x3C,0x4D],[0xA1,0xB2,0xC3,0xD4],[0xDE,0xAD,0xC0,0xDE],
-        [0x0B,0xAD,0xF0,0x0D],[0xBE,0xEF,0xCA,0xFE],[0xAB,0xAD,0xAB,0xAB],
-        [0x5A,0xA5,0x5A,0xA5],[0x96,0x69,0x96,0x69],[0x0D,0xF0,0xAD,0xBA],
-        [0xF0,0x0D,0xBE,0xEF],[0xC0,0xDE,0xC0,0xDE],[0x00,0x00,0x00,0x00],
-        // 8-byte rolling XOR variants
-        [0xAB,0xCD,0xEF,0x12,0x34,0x56,0x78,0x9A],
-        [0xDE,0xAD,0xBE,0xEF,0xCA,0xFE,0xBA,0xBE],
-        [0x13,0x37,0x13,0x37,0x13,0x37,0x13,0x37],
-      ];
-
-      // ── Known AES keys (hex strings) ──
-      // These are keys found in public game modding research
-      const KNOWN_AES_KEYS = [
-        "6806f2ea9e1c4b209a5c4f8c1e6e3a7d2b8f0c3e5a9d4b1f7e2c6a0d3b8f1e4",
-        "0000000000000000000000000000000000000000000000000000000000000000",
-        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-        "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-        "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe",
-      ];
-
-      function u32le(buf, off) {
-        return ((buf[off]|(buf[off+1]<<8)|(buf[off+2]<<16)|(buf[off+3]<<24))>>>0);
-      }
-
-      function checkMagic(buf) {
-        if (buf.length < 4) return false;
-        return u32le(buf, 0) === MAGIC;
-      }
-
-      // ── Attempt 1: No encryption (already valid) ──
-      function tryPlaintext(buf) {
-        if (checkMagic(buf)) return { success:true, method:"plaintext (not encrypted)", key:null, data:buf };
-        return null;
-      }
-
-      // ── Attempt 2: XOR with known keys ──
-      function tryXOR(buf, key) {
-        const out = new Uint8Array(buf.length);
-        for (let i = 0; i < buf.length; i++) out[i] = buf[i] ^ key[i % key.length];
-        if (checkMagic(out)) return out;
-        return null;
-      }
-
-      // ── Attempt 3: Rolling XOR (each byte XOR'd with previous) ──
-      function tryRollingXOR(buf) {
-        // Forward rolling
-        const out = new Uint8Array(buf.length);
-        out[0] = buf[0];
-        for (let i = 1; i < buf.length; i++) out[i] = buf[i] ^ buf[i-1];
-        if (checkMagic(out)) return { success:true, method:"rolling XOR (forward)", key:null, data:out };
-
-        // Reverse rolling
-        const out2 = new Uint8Array(buf.length);
-        out2[buf.length-1] = buf[buf.length-1];
-        for (let i = buf.length-2; i >= 0; i--) out2[i] = buf[i] ^ buf[i+1];
-        if (checkMagic(out2)) return { success:true, method:"rolling XOR (reverse)", key:null, data:out2 };
-
-        return null;
-      }
-
-      // ── Attempt 4: XOR with derived key from file size ──
-      function tryFileSizeXOR(buf) {
-        const size = buf.length;
-        const keys = [
-          [size & 0xFF],
-          [(size >> 8) & 0xFF],
-          [size & 0xFF, (size >> 8) & 0xFF, (size >> 16) & 0xFF, (size >> 24) & 0xFF],
-          [size & 0xFF, ~size & 0xFF],
-        ];
-        for (const key of keys) {
-          const out = tryXOR(buf, key);
-          if (out) return { success:true, method:`XOR with file-size key [${key.map(k=>"0x"+k.toString(16)).join(",")}]`, key, data:out };
-        }
-        return null;
-      }
-
-      // ── Attempt 5: Subtract/Add each byte ──
-      function tryByteOps(buf) {
-        // subtract to get target magic: 0xAF, 0x1B, 0xB1, 0xFA
-        const target = [0xAF, 0x1B, 0xB1, 0xFA];
-        for (let delta = 1; delta <= 255; delta++) {
-          const out = new Uint8Array(buf.length);
-          for (let i = 0; i < buf.length; i++) out[i] = (buf[i] + delta) & 0xFF;
-          if (checkMagic(out)) return { success:true, method:`ADD byte 0x${delta.toString(16)}`, key:[delta], data:out };
-          const out2 = new Uint8Array(buf.length);
-          for (let i = 0; i < buf.length; i++) out2[i] = (buf[i] - delta + 256) & 0xFF;
-          if (checkMagic(out2)) return { success:true, method:`SUB byte 0x${delta.toString(16)}`, key:[delta], data:out2 };
-        }
-        return null;
-      }
-
-      // ── Attempt 6: NOT (bitwise invert) ──
-      function tryNOT(buf) {
-        const out = new Uint8Array(buf.length);
-        for (let i = 0; i < buf.length; i++) out[i] = (~buf[i]) & 0xFF;
-        if (checkMagic(out)) return { success:true, method:"bitwise NOT", key:null, data:out };
-        return null;
-      }
-
-      // ── Attempt 7: Byte reversal / endian swap ──
-      function tryByteSwap(buf) {
-        // swap pairs
-        const out = new Uint8Array(buf.length);
-        for (let i = 0; i < buf.length; i += 2) {
-          out[i]   = buf[i+1] !== undefined ? buf[i+1] : buf[i];
-          out[i+1] = buf[i];
-        }
-        if (checkMagic(out)) return { success:true, method:"byte-pair swap", key:null, data:out };
-
-        // reverse entire file
-        const out2 = new Uint8Array(buf.length);
-        for (let i = 0; i < buf.length; i++) out2[i] = buf[buf.length-1-i];
-        if (checkMagic(out2)) return { success:true, method:"file reverse", key:null, data:out2 };
-
-        return null;
-      }
-
-      // ── Attempt 8: AES-256-CBC with Web Crypto ──
-      async function tryAES(buf, keyHex, ivHex) {
-        try {
-          const keyBytes = hexToBytes(keyHex);
-          const ivBytes  = ivHex ? hexToBytes(ivHex) : buf.slice(0, 16);
-          const data     = ivHex ? buf : buf.slice(16);
-          const cryptoKey = await crypto.subtle.importKey(
-            "raw", keyBytes, { name:"AES-CBC" }, false, ["decrypt"]
-          );
-          const decrypted = await crypto.subtle.decrypt(
-            { name:"AES-CBC", iv:ivBytes }, cryptoKey, data
-          );
-          const out = new Uint8Array(decrypted);
-          if (checkMagic(out)) return out;
-        } catch(_) {}
-        return null;
-      }
-
-      // ── Attempt 9: Frequency analysis → single byte XOR ──
-      // Find most common byte, assume it should be 0x00 or 0xFF
-      function tryFrequencyXOR(buf) {
-        const freq = new Array(256).fill(0);
-        for (const b of buf) freq[b]++;
-        // most common byte is likely XOR key for a sparse file
-        const sorted = freq.map((c,i)=>({c,i})).sort((a,b)=>b.c-a.c);
-        for (const {i: key} of sorted.slice(0, 8)) {
-          const out = new Uint8Array(buf.length);
-          for (let j = 0; j < buf.length; j++) out[j] = buf[j] ^ key;
-          if (checkMagic(out)) return { success:true, method:`frequency-analysis XOR 0x${key.toString(16).padStart(2,"0")}`, key:[key], data:out };
-        }
-        return null;
-      }
-
-      // ── Attempt 10: XXTEA block cipher (used by some Unity protectors) ──
-      function xxtea(v, n, k) {
-        const DELTA = 0x9e3779b9;
-        let z = v[n-1], y, sum, e, p, q;
-        if (n > 1) {
-          q = Math.floor(6 + 52/n);
-          sum = 0;
-          while (q-- > 0) {
-            sum = (sum + DELTA) >>> 0;
-            e = (sum >>> 2) & 3;
-            for (p = 0; p < n-1; p++) {
-              y = v[p+1];
-              v[p] = ((v[p] + (((z>>>5^y<<2)+(y>>>3^z<<4))^((sum^y)+(k[(p&3)^e]^z)))) >>> 0);
-              z = v[p];
-            }
-            y = v[0];
-            v[n-1] = ((v[n-1] + (((z>>>5^y<<2)+(y>>>3^z<<4))^((sum^y)+(k[((n-1)&3)^e]^z)))) >>> 0);
-            z = v[n-1];
-          }
-        }
-        return v;
-      }
-
-      function tryXXTEA(buf) {
-        // Try with null key
-        const keys = [
-          [0,0,0,0],
-          [0xDEADBEEF,0xCAFEBABE,0x13371337,0xABCDABCD],
-        ];
-        for (const key of keys) {
-          try {
-            const words = new Uint32Array(Math.floor(buf.length / 4));
-            for (let i = 0; i < words.length; i++) words[i] = u32le(buf, i*4);
-            xxtea(words, words.length, key);
-            const out = new Uint8Array(words.buffer);
-            if (checkMagic(out)) {
-              return { success:true, method:`XXTEA key=[${key.map(k=>"0x"+k.toString(16)).join(",")}]`, key, data:out };
-            }
-          } catch(_) {}
-        }
-        return null;
-      }
-
-      // ── Attempt 11: Custom header skip (some games prepend garbage) ──
-      function tryHeaderSkip(buf) {
-        const skips = [4,8,16,32,64,128,256,512,1024];
-        for (const skip of skips) {
-          if (buf.length > skip + 4) {
-            const sliced = buf.slice(skip);
-            if (checkMagic(sliced)) {
-              return { success:true, method:`header skip ${skip} bytes`, key:null, data:sliced };
-            }
-            // also try XOR after skip
-            for (const key of [[0xAF^buf[skip],0x1B^buf[skip+1],0xB1^buf[skip+2],0xFA^buf[skip+3]]]) {
-              const out = tryXOR(sliced, key);
-              if (out) return { success:true, method:`header skip ${skip} + XOR [${key.map(k=>"0x"+k.toString(16)).join(",")}]`, key, data:out };
-            }
-          }
-        }
-        return null;
-      }
-
-      // ── Attempt 12: Target magic XOR key derivation ──
-      // Derive the XOR key that would turn the first 4 bytes into the magic
-      function tryMagicDerivedXOR(buf) {
-        if (buf.length < 4) return null;
-        // The key needed to turn buf[0..3] into [0xAF,0x1B,0xB1,0xFA]
-        const key4 = [buf[0]^0xAF, buf[1]^0x1B, buf[2]^0xB1, buf[3]^0xFA];
-        const out = tryXOR(buf, key4);
-        if (out) return { success:true, method:`magic-derived XOR [${key4.map(k=>"0x"+k.toString(16)).join(",")}]`, key:key4, data:out };
-        return null;
-      }
-
-      function hexToBytes(hex) {
-        const bytes = new Uint8Array(hex.length/2);
-        for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i*2,2),16);
-        return bytes;
-      }
-
-      // ── Main decrypt pipeline ──
-      async function decryptMetadata(buf, progressFn) {
-        const report = [];
-        const log = (msg) => { report.push(msg); };
-
-        log("═══════════════════════════════════════════");
-        log("  METADATA DECRYPTOR — Axiom Engine");
-        log(`  File size: ${buf.length.toLocaleString()} bytes`);
-        log(`  First 16 bytes: ${Array.from(buf.slice(0,16)).map(b=>"0x"+b.toString(16).padStart(2,"0")).join(" ")}`);
-        log("═══════════════════════════════════════════");
-        log("");
-
-        const totalSteps = 12 + KNOWN_XOR_KEYS.length + KNOWN_AES_KEYS.length;
-        let step = 0;
-        const prog = (label) => { step++; progressFn(Math.round((step/totalSteps)*95), label); };
-
-        // Step 1: Plaintext
-        prog("checking plaintext...");
-        let result = tryPlaintext(buf);
-        if (result) { log("[✓] Already valid plaintext — file is not encrypted"); return { ...result, report }; }
-        log("[·] Plaintext: no magic match");
-
-        // Step 2: Magic-derived XOR
-        prog("deriving XOR key from magic...");
-        result = tryMagicDerivedXOR(buf);
-        if (result) { log(`[✓] SUCCESS: ${result.method}`); return { ...result, report }; }
-        log("[·] Magic-derived XOR: no match");
-
-        // Step 3: Known XOR keys
-        log(`[·] Trying ${KNOWN_XOR_KEYS.length} known XOR keys...`);
-        for (const key of KNOWN_XOR_KEYS) {
-          prog(`XOR [${key.map(k=>"0x"+k.toString(16)).join(",")}]`);
-          const out = tryXOR(buf, key);
-          if (out) {
-            log(`[✓] SUCCESS: XOR key=[${key.map(k=>"0x"+k.toString(16)).join(",")}]`);
-            return { success:true, method:`XOR key=[${key.map(k=>"0x"+k.toString(16)).join(",")}]`, key, data:out, report };
-          }
-        }
-        log("[·] Known XOR keys: no match");
-
-        // Step 4: Frequency analysis XOR
-        prog("frequency analysis...");
-        result = tryFrequencyXOR(buf);
-        if (result) { log(`[✓] SUCCESS: ${result.method}`); return { ...result, report }; }
-        log("[·] Frequency XOR: no match");
-
-        // Step 5: Rolling XOR
-        prog("rolling XOR...");
-        result = tryRollingXOR(buf);
-        if (result) { log(`[✓] SUCCESS: ${result.method}`); return { ...result, report }; }
-        log("[·] Rolling XOR: no match");
-
-        // Step 6: File size XOR
-        prog("file-size derived XOR...");
-        result = tryFileSizeXOR(buf);
-        if (result) { log(`[✓] SUCCESS: ${result.method}`); return { ...result, report }; }
-        log("[·] File-size XOR: no match");
-
-        // Step 7: Byte ops
-        prog("byte arithmetic scan...");
-        result = tryByteOps(buf);
-        if (result) { log(`[✓] SUCCESS: ${result.method}`); return { ...result, report }; }
-        log("[·] Byte arithmetic: no match");
-
-        // Step 8: NOT
-        prog("bitwise NOT...");
-        result = tryNOT(buf);
-        if (result) { log(`[✓] SUCCESS: ${result.method}`); return { ...result, report }; }
-        log("[·] NOT: no match");
-
-        // Step 9: Byte swap
-        prog("byte swap...");
-        result = tryByteSwap(buf);
-        if (result) { log(`[✓] SUCCESS: ${result.method}`); return { ...result, report }; }
-        log("[·] Byte swap: no match");
-
-        // Step 10: Header skip
-        prog("header skip scan...");
-        result = tryHeaderSkip(buf);
-        if (result) { log(`[✓] SUCCESS: ${result.method}`); return { ...result, report }; }
-        log("[·] Header skip: no match");
-
-        // Step 11: XXTEA
-        prog("XXTEA block cipher...");
-        result = tryXXTEA(buf);
-        if (result) { log(`[✓] SUCCESS: ${result.method}`); return { ...result, report }; }
-        log("[·] XXTEA: no match");
-
-        // Step 12: AES-256-CBC
-        log(`[·] Trying ${KNOWN_AES_KEYS.length} known AES keys...`);
-        for (const keyHex of KNOWN_AES_KEYS) {
-          prog(`AES-256-CBC key=${keyHex.slice(0,16)}...`);
-          // Try with first 16 bytes as IV
-          const out = await tryAES(buf, keyHex, null);
-          if (out) {
-            log(`[✓] SUCCESS: AES-256-CBC key=${keyHex}`);
-            return { success:true, method:`AES-256-CBC key=${keyHex}`, key:keyHex, data:out, report };
-          }
-          // Try with zero IV
-          const out2 = await tryAES(buf, keyHex, "0".repeat(32));
-          if (out2) {
-            log(`[✓] SUCCESS: AES-256-CBC key=${keyHex} iv=0`);
-            return { success:true, method:`AES-256-CBC iv=0 key=${keyHex}`, key:keyHex, data:out2, report };
-          }
-        }
-        log("[·] AES: no match");
-
-        progressFn(100, "scan complete");
-        log("");
-        log("═══════════════════════════════════════════");
-        log("  RESULT: no standard scheme matched");
-        log("  This file may use a custom/proprietary");
-        log("  encryption not in the known-schemes list.");
-        log("  Key is likely embedded in libil2cpp.so.");
-        log("  Use the symbol getter + binary analysis");
-        log("  to find the decryption function.");
-        log("═══════════════════════════════════════════");
-
-        return { success:false, method:null, key:null, data:null, report };
-      }
-
-      // ── UI wiring ──
-      const dropzone  = document.getElementById("metaDropzone");
-      const fileInput = document.getElementById("metaFileInput");
-      const btn       = document.getElementById("metaDecryptBtn");
-
-      let fileBytes = null;
-
-      function showError(msg) {
-        const el = document.getElementById("metaError");
-        el.textContent = msg;
-        el.style.display = msg ? "block" : "none";
-      }
-
-      function setProgress(pct, label) {
-        document.getElementById("metaProgressBar").style.width = pct + "%";
-        document.getElementById("metaProgressPct").textContent = pct + "%";
-        document.getElementById("metaProgressLabel").textContent = label;
-      }
-
-      function loadFile(file) {
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          fileBytes = new Uint8Array(e.target.result);
-          document.getElementById("metaFileName").textContent = file.name;
-          document.getElementById("metaFileSize").textContent = "(" + file.size.toLocaleString() + " bytes)";
-          const magic = ((fileBytes[0]|(fileBytes[1]<<8)|(fileBytes[2]<<16)|(fileBytes[3]<<24))>>>0);
-          const magicHex = "0x" + magic.toString(16).toUpperCase().padStart(8,"0");
-          const isValid = magic === 0xFAB11BAF;
-          document.getElementById("metaMagicInfo").textContent =
-            "magic: " + magicHex + " — " + (isValid ? "✓ valid (not encrypted)" : "✗ not standard magic → likely encrypted");
-          document.getElementById("metaFileInfo").style.display = "block";
-          document.getElementById("metaResults").style.display = "none";
-          btn.disabled = false;
-          showError("");
-        };
-        reader.readAsArrayBuffer(file);
-      }
-
-      dropzone.addEventListener("click", () => fileInput.click());
-      dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.style.borderColor = "var(--primary)"; });
-      dropzone.addEventListener("dragleave", () => { dropzone.style.borderColor = ""; });
-      dropzone.addEventListener("drop", (e) => { e.preventDefault(); dropzone.style.borderColor = ""; loadFile(e.dataTransfer.files[0]); });
-      fileInput.addEventListener("change", (e) => loadFile(e.target.files[0]));
-
-      btn.addEventListener("click", async () => {
-        if (!fileBytes) return;
-        btn.disabled = true;
-        showError("");
-        document.getElementById("metaProgressWrap").style.display = "block";
-        document.getElementById("metaResults").style.display = "none";
-        setProgress(0, "starting...");
-
-        try {
-          const result = await decryptMetadata(fileBytes, setProgress);
-
-          document.getElementById("metaProgressWrap").style.display = "none";
-          document.getElementById("metaResults").style.display = "block";
-
-          const badge = document.getElementById("metaStatusBadge");
-          if (result.success) {
-            badge.className = "badge-success";
-            badge.textContent = "✓ decrypted — " + result.method;
-          } else {
-            badge.className = "badge-fail";
-            badge.textContent = "✗ scheme not recognized — see report";
-          }
-
-          document.getElementById("metaReport").textContent = result.report.join("\n");
-
-          if (result.success && result.data) {
-            // Offer download
-            document.getElementById("metaDownloadWrap").style.display = "block";
-            document.getElementById("metaDownloadBtn").onclick = () => {
-              const blob = new Blob([result.data], { type:"application/octet-stream" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url; a.download = "global-metadata-decrypted.dat";
-              a.click(); URL.revokeObjectURL(url);
-            };
-
-            // Try to parse recovered metadata and show class preview
-            try {
-              const view = new DataView(result.data.buffer);
-              if (result.data.length > 100) {
-                document.getElementById("metaClassWrap").style.display = "block";
-                // Quick class name extraction for preview
-                const lines = ["// Class preview from decrypted metadata\n"];
-                // Scan for ASCII strings that look like class names
-                let i = 0, found = 0;
-                while (i < result.data.length && found < 200) {
-                  if (result.data[i] >= 0x20 && result.data[i] < 0x7F) {
-                    let s = "";
-                    while (i < result.data.length && result.data[i] >= 0x20 && result.data[i] < 0x7F) {
-                      s += String.fromCharCode(result.data[i++]);
-                    }
-                    if (s.length >= 4 && s.length <= 80 && /^[A-Za-z_][A-Za-z0-9_<>,.\[\]\s]*$/.test(s)) {
-                      lines.push(s);
-                      found++;
-                    }
-                  } else { i++; }
-                }
-                document.getElementById("metaClassPreview").textContent = lines.join("\n");
-              }
-            } catch(_) {}
-          } else {
-            document.getElementById("metaDownloadWrap").style.display = "none";
-            document.getElementById("metaClassWrap").style.display = "none";
-          }
-
-        } catch(err) {
-          document.getElementById("metaProgressWrap").style.display = "none";
-          showError("error: " + (err && err.message ? err.message : String(err)));
-        }
-
-        btn.disabled = false;
-      });
-
-    })();
-    </script>
-
 </body>
 </html>
