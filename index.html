@@ -106,7 +106,7 @@
     .browse { margin-top: 16px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 7px; color: var(--foreground); background: rgba(255,255,255,.08); font-size: 13px; cursor: pointer; }
     .browse:hover { border-color: var(--border-hover); background: rgba(255,255,255,.13); }
     .drop-hint { margin-top: 15px; color: rgba(248,240,255,.48); font-size: 11px; }
-    #fileInput, #soInput, #obfInput, #tsInput { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; border: 0; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+    #fileInput, #soInput, #obfInput, #tsInput, #dumpMetadataInput, #dumpBinaryInput { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; border: 0; clip: rect(0, 0, 0, 0); white-space: nowrap; }
     .loading { display: flex; min-height: 175px; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 14px; }
     .spinner { width: 17px; height: 17px; border: 2px solid rgba(255,255,255,.22); border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
     .error { margin-top: 12px; padding: 10px 12px; border: 1px solid rgba(251,146,190,.36); border-radius: 8px; color: #ffd8ec; background: rgba(190,24,93,.12); font-size: 12px; line-height: 1.5; }
@@ -144,6 +144,30 @@
     .obf-metrics span { padding: 7px 9px; border: 1px solid rgba(255,255,255,.11); border-radius: 7px; background: rgba(10,2,20,.18); }
     .obf-metrics strong { margin-right: 3px; color: var(--foreground); font-weight: 600; }
     .obf-note { margin: 14px 0 0; color: rgba(248,240,255,.46); font-size: 11px; line-height: 1.5; }
+    .dump-dropzone { padding: 20px; border: 1px dashed rgba(248,240,255,.32); border-radius: 12px; background: rgba(10,2,20,.17); transition: border-color .18s ease, background .18s ease, box-shadow .18s ease; }
+    .dump-dropzone:hover, .dump-dropzone.dragging { border-color: var(--primary); background: rgba(192,132,252,.1); box-shadow: 0 0 0 3px rgba(192,132,252,.06); }
+    .dump-drop-title { margin: 0; font-size: 15px; font-weight: 600; text-align: center; }
+    .dump-drop-copy { margin: 7px 0 17px; color: var(--muted); font-size: 12px; text-align: center; }
+    .dump-file-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .dump-slot { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 11px; border: 1px solid rgba(255,255,255,.12); border-radius: 9px; background: rgba(5,1,12,.2); }
+    .dump-slot-icon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 8px; color: var(--primary); background: rgba(192,132,252,.12); }
+    .dump-slot-icon svg { width: 15px; height: 15px; }
+    .dump-slot-info { min-width: 0; flex: 1; }
+    .dump-slot-title { margin: 0; overflow: hidden; color: var(--muted-strong); font: 10px Consolas, Monaco, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .dump-slot-state { margin: 4px 0 0; overflow: hidden; color: rgba(248,240,255,.43); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .dump-slot-state.ready { color: #e9d5ff; }
+    .dump-select { padding: 6px 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted-strong); background: rgba(255,255,255,.05); font-size: 10px; cursor: pointer; }
+    .dump-select:hover { border-color: var(--border-hover); color: var(--foreground); }
+    .dump-actions { display: flex; justify-content: center; gap: 8px; margin-top: 14px; }
+    .done-row .dump-actions { margin-top: 0; }
+    .dump-run { width: 100%; margin-top: 14px; }
+    .dump-run:disabled { cursor: not-allowed; opacity: .45; }
+    .dump-progress-wrap { min-height: 175px; padding: 32px 20px; text-align: center; }
+    .dump-progress-label { margin: 0; color: var(--muted); font-size: 13px; }
+    .dump-progress-track { width: min(100%, 390px); height: 7px; margin: 18px auto 9px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.1); }
+    .dump-progress-bar { width: 4%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--primary-strong), var(--primary)); box-shadow: 0 0 14px rgba(192,132,252,.7); transition: width .35s ease; }
+    .dump-progress-percent { margin: 0; color: rgba(248,240,255,.42); font-size: 10px; }
+    .dump-summary { margin: 14px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
     .tool-note { margin: 24px 0 0; color: rgba(248,240,255,.45); font-size: 11px; text-align: center; }
     .view:not(.hidden) { animation: viewReveal .48s cubic-bezier(.2,.75,.25,1) both; }
     .home-intro { animation: floatIn .6s cubic-bezier(.2,.75,.25,1) both; }
@@ -200,6 +224,8 @@
       .tool-card h2 { font-size: 14px; }
       .tool-card p { font-size: 11px; }
       .card-arrow { font-size: 19px; }
+      .dump-file-slots { grid-template-columns: 1fr; }
+      .dump-actions { flex-direction: column; }
     }
   </style>
 </head>
@@ -251,6 +277,11 @@
           <a class="tool-card" href="#ts-to-js" data-route="ts-to-js">
             <div class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9h4M9 7v6M14 13l2-2 2 2"/></svg></div>
             <div class="tool-card-copy"><h2>typescript to javascript</h2><p>convert a .ts file to JavaScript in your browser</p></div>
+            <span class="card-arrow" aria-hidden="true">↗</span>
+          </a>
+          <a class="tool-card" href="#dump-game" data-route="dump-game">
+            <div class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9h10M7 13h7M7 17h4"/></svg></div>
+            <div class="tool-card-copy"><h2>Dump Game</h2><p>build a best-effort dump.cs from IL2CPP files</p></div>
             <span class="card-arrow" aria-hidden="true">↗</span>
           </a>
         </nav>
@@ -366,6 +397,40 @@
       </section>
     </main>
 
+    <main id="dumpView" class="tool-main view hidden">
+      <div class="tool-intro"><h1>Dump Game</h1><p>drop the metadata and binary to build a best-effort dump.cs locally</p></div>
+      <section>
+        <div class="dump-dropzone" id="dumpDropzone" role="button" tabindex="0" aria-label="Upload global-metadata.dat and libil2cpp.so">
+          <input id="dumpMetadataInput" type="file" accept=".dat,application/octet-stream">
+          <input id="dumpBinaryInput" type="file" accept=".so,.bin,application/octet-stream">
+          <p class="dump-drop-title">drop both files here</p>
+          <p class="dump-drop-copy">global-metadata.dat + libil2cpp.so · processed locally</p>
+          <div class="dump-file-slots">
+            <div class="dump-slot">
+              <div class="dump-slot-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M9 12h6M9 16h6"/></svg></div>
+              <div class="dump-slot-info"><p class="dump-slot-title">global-metadata.dat</p><p class="dump-slot-state" id="dumpMetaState">not selected</p></div>
+              <button class="dump-select" id="dumpMetaBrowse" type="button">choose</button>
+            </div>
+            <div class="dump-slot">
+              <div class="dump-slot-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h8M8 17h4"/></svg></div>
+              <div class="dump-slot-info"><p class="dump-slot-title">libil2cpp.so</p><p class="dump-slot-state" id="dumpBinaryState">not selected</p></div>
+              <button class="dump-select" id="dumpBinaryBrowse" type="button">choose</button>
+            </div>
+          </div>
+          <div class="drop-hint">you can provide either file · both gives the fullest result</div>
+        </div>
+        <div class="dump-actions"><button class="button primary dump-run" id="dumpButton" type="button" disabled>dump game</button></div>
+        <div class="error hidden" id="dumpError" role="alert"></div>
+        <div class="hidden" id="dumpLoading" aria-live="polite"><div class="dump-progress-wrap"><p class="dump-progress-label" id="dumpProgressLabel">preparing dump</p><div class="dump-progress-track"><div class="dump-progress-bar" id="dumpProgressBar"></div></div><p class="dump-progress-percent" id="dumpProgressPercent">0%</p></div></div>
+        <div class="hidden" id="dumpResult" aria-live="polite">
+          <div class="done-row"><div><p class="done-title">dump complete</p><p class="done-copy" id="dumpSummary">dump.cs is ready</p></div><div class="dump-actions"><button class="button" id="clearDump" type="button">Clear</button><button class="button primary" id="downloadDump" type="button">download dump.cs</button></div></div>
+          <p class="dump-summary" id="dumpDetails"></p>
+          <div class="outputs"><h2>output</h2><div class="file-output" data-output="dumpCs"><div class="file-output-head"><span>dump.cs</span><div class="file-output-actions"><button class="small-button copy-output" type="button">copy</button><button class="small-button download-output" type="button">download</button></div></div><pre></pre></div></div>
+        </div>
+      </section>
+      <p class="tool-note">offline, best-effort IL2CPP metadata dump · encrypted metadata is reported clearly</p>
+    </main>
+
   </div>
 
   <script>
@@ -379,7 +444,7 @@
       const state = { route: "home", getter: null, symbolMap: null, patched: null, outputs: {} };
 
       function showView(route) {
-        const viewByRoute = { home: "homeView", "symbol-getter": "getterView", "frida-gen": "patcherView", "js-obfuscator": "obfuscatorView", "ts-to-js": "tsView" };
+        const viewByRoute = { home: "homeView", "symbol-getter": "getterView", "frida-gen": "patcherView", "js-obfuscator": "obfuscatorView", "ts-to-js": "tsView", "dump-game": "dumpView" };
         const activeView = viewByRoute[route] || viewByRoute.home;
         state.route = viewByRoute[route] ? route : "home";
         $$(".view").forEach((view) => view.classList.toggle("hidden", view.id !== activeView));
@@ -394,7 +459,7 @@
       function go(route) { location.hash = route === "home" ? "" : route; }
       function routeFromHash() {
         const route = location.hash.replace(/^#/, "") || "home";
-        return ["home", "symbol-getter", "frida-gen", "js-obfuscator", "ts-to-js"].includes(route) ? route : "home";
+        return ["home", "symbol-getter", "frida-gen", "js-obfuscator", "ts-to-js", "dump-game"].includes(route) ? route : "home";
       }
       window.addEventListener("hashchange", () => showView(routeFromHash()));
       $("#backButton").addEventListener("click", () => { if (history.length > 1) history.back(); else go("home"); });
@@ -409,7 +474,7 @@
         $$("[data-output]").forEach((box) => { const key = box.dataset.output; const pre = $("pre", box); if (pre && outputs[key] !== undefined) pre.textContent = outputs[key].length > 10000 ? `${outputs[key].slice(0, 10000)}\n\n... (truncated)` : outputs[key]; });
       }
       $$(".copy-output").forEach((button) => button.addEventListener("click", () => { const box = button.closest("[data-output]"); copyText(state.outputs[box.dataset.output] || "", button); }));
-      $$(".download-output").forEach((button) => button.addEventListener("click", () => { const box = button.closest("[data-output]"); const names = { symbolMap: "SymbolMap.json", bnmHeader: "Il2CppMethodNames.hpp", dumperHeader: "Il2Cpp-Headers.hpp", fridaMap: "Frida-Map.js", patchedBridge: "frida-il2cpp-bridge.js", obfuscatedJs: "obfuscated.js" }; downloadFile(names[box.dataset.output] || "output.txt", state.outputs[box.dataset.output] || "", box.dataset.output === "symbolMap" ? "application/json" : "text/javascript"); }));
+      $$(".download-output").forEach((button) => button.addEventListener("click", () => { const box = button.closest("[data-output]"); const names = { symbolMap: "SymbolMap.json", bnmHeader: "Il2CppMethodNames.hpp", dumperHeader: "Il2Cpp-Headers.hpp", fridaMap: "Frida-Map.js", patchedBridge: "frida-il2cpp-bridge.js", obfuscatedJs: "obfuscated.js", transpiledJs: "output.js", dumpCs: "dump.cs" }; downloadFile(names[box.dataset.output] || "output.txt", state.outputs[box.dataset.output] || "", box.dataset.output === "symbolMap" ? "application/json" : "text/plain"); }));
 
       function readU16(view, offset) { return view.getUint16(offset, true); }
       function readU32(view, offset) { return view.getUint32(offset, true); }
@@ -478,6 +543,142 @@
         const fridaMap = "Il2Cpp.$config.exports = {\n" + Object.entries(symbolMap).map(([name, value]) => `\t${name}: () => Il2Cpp.module.findExportByName(\"${value}\"),`).join("\n") + "\n};";
         return { symbolMap, stats: { totalExports: exports.length, mappedSymbols: Object.keys(symbolMap).length, missingSymbols: missing }, bnmHeader, dumperHeader, fridaMap };
       }
+
+      const DUMP_HEADER_FIELDS = [
+        "stringLiterals", "stringLiteralData", "strings", "events", "properties", "methods", "parameterDefaultValues", "fieldDefaultValues", "fieldAndParameterDefaultValueData", "fieldMarshaledSizes", "parameters", "fields", "genericParameters", "genericParameterConstraints", "genericContainers", "nestedTypes", "interfaces", "vtableMethods", "interfaceOffsets", "typeDefinitions", "rgctxEntries", "images", "assemblies", "fieldRefs", "referencedAssemblies", "attributeData", "attributeDataRange", "unresolvedVirtualCallParameterTypes", "unresolvedVirtualCallParameterRanges", "windowsRuntimeTypeNames", "windowsRuntimeStrings", "exportedTypeDefinitions"
+      ];
+      function readDumpI32(view, offset) { return offset >= 0 && offset + 4 <= view.byteLength ? view.getInt32(offset, true) : 0; }
+      function readDumpU16(view, offset) { return offset >= 0 && offset + 2 <= view.byteLength ? view.getUint16(offset, true) : 0; }
+      function readDumpU32(view, offset) { return offset >= 0 && offset + 4 <= view.byteLength ? view.getUint32(offset, true) : 0; }
+      function dumpHex(value) { return `0x${Math.max(0, Number(value) || 0).toString(16).toUpperCase()}`; }
+      function dumpName(value, fallback) { const name = String(value || fallback || "Unknown").replace(/[^A-Za-z0-9_$]/g, "_"); return /^[0-9]/.test(name) ? `_${name}` : name; }
+      function parseDumpMetadata(bytes) {
+        if (!bytes || bytes.length < 8) throw new Error("global-metadata.dat is too small");
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const magic = readDumpU32(view, 0);
+        if (magic !== 0xFAB11BAF) return { encrypted: true, magic: dumpHex(magic), version: readDumpI32(view, 4), classes: [], stats: { fields: 0, methods: 0, classes: 0 } };
+        const header = {};
+        DUMP_HEADER_FIELDS.forEach((name, index) => { const offset = 8 + index * 8; header[name] = { offset: readDumpI32(view, offset), bytes: readDumpI32(view, offset + 4) }; });
+        const stringAt = (index) => { if (index === undefined || index === null || index < 0 || !header.strings || !header.strings.bytes) return ""; const position = header.strings.offset + index; return position >= 0 && position < bytes.length ? cString(bytes, position) : ""; };
+        const typeBytes = Math.max(0, header.typeDefinitions.bytes);
+        const typeStride = [100, 104, 96, 88, 112].find((size) => typeBytes > 0 && typeBytes % size === 0) || 100;
+        const typeCount = Math.floor(typeBytes / typeStride);
+        const fieldStride = 12;
+        const fieldCount = Math.floor(Math.max(0, header.fields.bytes) / fieldStride);
+        const methodStride = [52, 56, 48, 40].find((size) => header.methods.bytes > 0 && header.methods.bytes % size === 0) || 52;
+        const methodCount = Math.floor(Math.max(0, header.methods.bytes) / methodStride);
+        const genericContainerStride = 16;
+        const genericParameterStride = 16;
+        const genericContainers = [];
+        const genericParameters = [];
+        for (let index = 0; index < Math.floor(Math.max(0, header.genericContainers.bytes) / genericContainerStride); index += 1) {
+          const position = header.genericContainers.offset + index * genericContainerStride;
+          genericContainers.push({ owner: readDumpI32(view, position), count: readDumpI32(view, position + 4), start: readDumpI32(view, position + 8) });
+        }
+        for (let index = 0; index < Math.floor(Math.max(0, header.genericParameters.bytes) / genericParameterStride); index += 1) {
+          const position = header.genericParameters.offset + index * genericParameterStride;
+          genericParameters.push({ name: stringAt(readDumpI32(view, position)), owner: readDumpI32(view, position + 8) });
+        }
+        const genericNames = (containerIndex) => { const container = genericContainers[containerIndex]; if (!container) return []; return genericParameters.slice(container.start, container.start + container.count).map((parameter, index) => dumpName(parameter.name, `T${index}`)); };
+        const fields = [];
+        for (let index = 0; index < fieldCount; index += 1) { const position = header.fields.offset + index * fieldStride; fields.push({ name: stringAt(readDumpI32(view, position)), typeIndex: readDumpI32(view, position + 4), token: readDumpU32(view, position + 8) }); }
+        const methods = [];
+        for (let index = 0; index < methodCount; index += 1) { const position = header.methods.offset + index * methodStride; methods.push({ name: stringAt(readDumpI32(view, position)), returnType: readDumpI32(view, position + 4), parameterStart: readDumpI32(view, position + 8), genericContainer: readDumpI32(view, position + 16), token: readDumpU32(view, position + 40), flags: readDumpU16(view, position + 44), slot: readDumpU16(view, position + 48), parameterCount: readDumpU16(view, position + 50) }); }
+        const types = [];
+        for (let index = 0; index < typeCount; index += 1) {
+          const position = header.typeDefinitions.offset + index * typeStride;
+          const flags = readDumpU32(view, position + 40);
+          types.push({ index, name: stringAt(readDumpI32(view, position)), namespace: stringAt(readDumpI32(view, position + 4)), parentIndex: readDumpI32(view, position + 20), genericContainer: readDumpI32(view, position + 36), flags, fieldStart: readDumpI32(view, position + 44), methodStart: readDumpI32(view, position + 52), fieldCount: readDumpU16(view, position + 80), methodCount: readDumpU16(view, position + 76), token: readDumpU32(view, position + 96) });
+        }
+        const typeByIndex = Object.fromEntries(types.map((type) => [type.index, type]));
+        const accessName = (flags) => ({ 1: "private", 2: "private", 3: "internal", 4: "protected", 5: "protected internal", 6: "public" }[flags & 7] || "public");
+        const typeDeclaration = (type) => { const interfaceType = Boolean(type.flags & 0x20); const modifiers = [accessName(type.flags)]; if (!interfaceType && type.flags & 0x80) modifiers.push("abstract"); if (!interfaceType && type.flags & 0x100) modifiers.push("sealed"); const generic = genericNames(type.genericContainer); const parent = type.parentIndex >= 0 && typeByIndex[type.parentIndex] ? ` : ${dumpName(typeByIndex[type.parentIndex].name, "BaseType")}` : ""; return `${modifiers.join(" ")} ${interfaceType ? "interface" : "class"} ${dumpName(type.name, `TypeDef${type.index}`)}${generic.length ? `<${generic.join(", ")}>` : ""}${parent}`; };
+        const methodModifiers = (flags) => { const modifiers = [accessName(flags)]; if (flags & 0x10) modifiers.push("static"); if (flags & 0x40) modifiers.push("virtual"); if (flags & 0x400) modifiers.push("abstract"); return modifiers.join(" "); };
+        const classes = types.map((type) => ({ ...type, fields: fields.slice(type.fieldStart, type.fieldStart + type.fieldCount), methods: methods.slice(type.methodStart, type.methodStart + type.methodCount), declaration: typeDeclaration(type), genericNames: genericNames(type.genericContainer) }));
+        return { encrypted: false, version: readDumpI32(view, 4), header, classes, fields, methods, stats: { classes: classes.length, fields: fields.length, methods: methods.length }, typeByIndex };
+      }
+      function parseDumpBinary(bytes) {
+        if (!bytes || !bytes.length) return { exports: [], map: {}, error: "libil2cpp.so was not provided" };
+        try {
+          const exports = bytes[0] === 0x7f ? parseElf(bytes) : parsePe(bytes);
+          const map = {};
+          exports.forEach((item) => { if (item.name && map[item.name] === undefined) map[item.name] = item.address; });
+          return { exports, map, error: exports.length ? "" : "no exports found" };
+        } catch (caught) { return { exports: [], map: {}, error: caught && caught.message ? caught.message : "could not parse the native library" }; }
+      }
+      function buildDumpCs(metadata, binary, names) {
+        const lines = ["// Dump generated by IL2CPP Symbol Tools", `// Metadata: ${names.metadata || "not provided"}`, `// Binary: ${names.binary || "not provided"}`, "// This is a best-effort offline dump. Unknown values are marked instead of guessed.", ""];
+        const limitations = [];
+        if (!metadata) limitations.push("global-metadata.dat was not provided");
+        if (metadata && metadata.encrypted) { limitations.push(`global-metadata.dat does not have the expected AF 1B B1 FA magic (found ${metadata.magic}); it may be encrypted or protected`); lines.push("// WARNING: global-metadata.dat is encrypted or uses an unsupported format.", "// Class, field, and method recovery is unavailable without decryption.", ""); }
+        if (!binary || binary.error) limitations.push(binary && binary.error ? binary.error : "libil2cpp.so was not provided");
+        const exportMap = binary && binary.map ? binary.map : {};
+        if (metadata && !metadata.encrypted && metadata.classes.length) {
+          const groups = {};
+          metadata.classes.forEach((type) => { const namespace = type.namespace || ""; (groups[namespace] ||= []).push(type); });
+          Object.keys(groups).sort().forEach((namespace) => {
+            if (namespace) lines.push(`namespace ${namespace} {`, "");
+            groups[namespace].forEach((type) => {
+              const indent = namespace ? "    " : "";
+              lines.push(`${indent}// TypeDefIndex: ${type.index}`, `${indent}${type.declaration}`, `${indent}{`);
+              if (!type.fields.length) lines.push(`${indent}    // Fields: 0`);
+              type.fields.forEach((field) => { lines.push(`${indent}    // Offset: unknown`, `${indent}    ${accessNameForDump(field)} object ${dumpName(field.name, "field")};`); });
+              if (!type.methods.length) lines.push(`${indent}    // Methods: 0`);
+              type.methods.forEach((method) => { const rva = exportMap[method.name]; if (rva !== undefined) lines.push(`${indent}    // RVA: ${dumpHex(rva)}`); else lines.push(`${indent}    // RVA: unknown`); const generic = method.genericContainer >= 0 ? " <T>" : ""; const params = Array.from({ length: method.parameterCount || 0 }, (_, index) => `object arg${index}`).join(", "); lines.push(`${indent}    ${methodModifiersForDump(method.flags)} object ${dumpName(method.name, "Method")}${generic}(${params});`); });
+              lines.push(`${indent}}`, "");
+            });
+            if (namespace) lines.push("}", "");
+          });
+        } else if (binary && binary.exports.length) {
+          lines.push("namespace NativeExports {", "    public static class Il2CppExports", "    {");
+          binary.exports.slice(0, 2000).forEach((item) => { lines.push(`        // RVA: ${dumpHex(item.address)}`, `        public static void ${dumpName(item.name, "Export")}();`); });
+          lines.push("    }", "}", "");
+        } else {
+          lines.push("// No readable metadata or native exports were available.", "");
+        }
+        if (limitations.length) { lines.push("// Limitations:"); limitations.forEach((limitation) => lines.push(`// - ${limitation}`)); lines.push(""); }
+        return { text: lines.join("\n"), limitations };
+      }
+      function accessNameForDump(field) { return "public"; }
+      function methodModifiersForDump(flags) { const access = { 1: "private", 2: "private", 3: "internal", 4: "protected", 5: "protected internal", 6: "public" }[flags & 7] || "public"; const modifiers = [access]; if (flags & 0x10) modifiers.push("static"); if (flags & 0x40) modifiers.push("virtual"); if (flags & 0x400) modifiers.push("abstract"); return modifiers.join(" "); }
+      const dumpDropzone = $("#dumpDropzone");
+      const dumpMetadataInput = $("#dumpMetadataInput");
+      const dumpBinaryInput = $("#dumpBinaryInput");
+      const dumpState = { metadata: null, binary: null, output: "" };
+      function updateDumpSlots() { const meta = $("#dumpMetaState"); const binary = $("#dumpBinaryState"); meta.textContent = dumpState.metadata ? `${dumpState.metadata.name} · ${formatBytes(dumpState.metadata.size)}` : "not selected"; binary.textContent = dumpState.binary ? `${dumpState.binary.name} · ${formatBytes(dumpState.binary.size)}` : "not selected"; meta.classList.toggle("ready", Boolean(dumpState.metadata)); binary.classList.toggle("ready", Boolean(dumpState.binary)); $("#dumpButton").disabled = !dumpState.metadata && !dumpState.binary; }
+      function assignDumpFile(file) { if (!file) return; const name = file.name.toLowerCase(); if (name.includes("global-metadata") || name.endsWith(".dat")) dumpState.metadata = file; else if (name.includes("libil2cpp") || name.endsWith(".so") || name.endsWith(".bin")) dumpState.binary = file; else { setError("#dumpError", "choose global-metadata.dat or libil2cpp.so"); return; } setError("#dumpError", ""); updateDumpSlots(); }
+      function setDumpProgress(value, label) { $("#dumpProgressBar").style.width = `${value}%`; $("#dumpProgressPercent").textContent = `${value}%`; $("#dumpProgressLabel").textContent = label; }
+      async function runDump() {
+        if (!dumpState.metadata && !dumpState.binary) { setError("#dumpError", "add at least one file first"); return; }
+        setError("#dumpError", ""); $("#dumpResult").classList.add("hidden"); $("#dumpLoading").classList.remove("hidden"); setDumpProgress(5, "reading files"); await sleep(240);
+        try {
+          let metadata = null; let binary = null;
+          if (dumpState.metadata) { setDumpProgress(25, "reading global-metadata.dat"); metadata = parseDumpMetadata(new Uint8Array(await dumpState.metadata.arrayBuffer())); await sleep(220); }
+          else setDumpProgress(25, "metadata missing · continuing with binary");
+          if (dumpState.binary) { setDumpProgress(55, "scanning libil2cpp.so exports"); binary = parseDumpBinary(new Uint8Array(await dumpState.binary.arrayBuffer())); await sleep(280); }
+          else setDumpProgress(55, "libil2cpp.so missing · continuing with metadata");
+          setDumpProgress(78, "building dump.cs"); await sleep(220);
+          const result = buildDumpCs(metadata, binary, { metadata: dumpState.metadata && dumpState.metadata.name, binary: dumpState.binary && dumpState.binary.name });
+          dumpState.output = result.text; state.outputs.dumpCs = result.text; fillOutputBoxes({ dumpCs: result.text });
+          setDumpProgress(100, "complete"); await sleep(180); $("#dumpLoading").classList.add("hidden"); $("#dumpResult").classList.remove("hidden"); $("#dumpSummary").textContent = `${metadata && !metadata.encrypted ? `${metadata.stats.classes} classes · ${metadata.stats.fields} fields · ${metadata.stats.methods} methods` : "limited metadata"} · dump.cs ready`; $("#dumpDetails").textContent = result.limitations.length ? result.limitations.join(" · ") : "metadata and native exports were both available; unknown types and offsets are marked when they cannot be resolved offline.";
+        } catch (caught) {
+          $("#dumpLoading").classList.add("hidden"); setError("#dumpError", caught && caught.message ? caught.message : "could not build dump.cs");
+        }
+      }
+      function resetDump() { dumpState.metadata = null; dumpState.binary = null; dumpState.output = ""; dumpMetadataInput.value = ""; dumpBinaryInput.value = ""; $("#dumpResult").classList.add("hidden"); $("#dumpLoading").classList.add("hidden"); setError("#dumpError", ""); updateDumpSlots(); }
+      dumpDropzone.addEventListener("click", (event) => { if (event.target.closest("button")) return; if (!dumpState.metadata) dumpMetadataInput.click(); else dumpBinaryInput.click(); });
+      dumpDropzone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); if (!dumpState.metadata) dumpMetadataInput.click(); else dumpBinaryInput.click(); } });
+      $("#dumpMetaBrowse").addEventListener("click", (event) => { event.stopPropagation(); dumpMetadataInput.click(); });
+      $("#dumpBinaryBrowse").addEventListener("click", (event) => { event.stopPropagation(); dumpBinaryInput.click(); });
+      dumpMetadataInput.addEventListener("change", () => { assignDumpFile(dumpMetadataInput.files[0]); });
+      dumpBinaryInput.addEventListener("change", () => { assignDumpFile(dumpBinaryInput.files[0]); });
+      ["dragenter", "dragover"].forEach((name) => dumpDropzone.addEventListener(name, (event) => { event.preventDefault(); dumpDropzone.classList.add("dragging"); }));
+      ["dragleave", "drop"].forEach((name) => dumpDropzone.addEventListener(name, (event) => { event.preventDefault(); dumpDropzone.classList.remove("dragging"); }));
+      dumpDropzone.addEventListener("drop", (event) => { [...event.dataTransfer.files].forEach(assignDumpFile); });
+      $("#dumpButton").addEventListener("click", runDump);
+      $("#downloadDump").addEventListener("click", () => downloadFile("dump.cs", dumpState.output, "text/plain"));
+      $("#clearDump").addEventListener("click", resetDump);
+      updateDumpSlots();
 
       const soDropzone = $("#soDropzone");
       const soInput = $("#soInput");
@@ -770,5 +971,5 @@
       }, 1800);
     })();
   </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a269eb524d03ead8',t:'MTc4NTk3NjA4Mg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>
